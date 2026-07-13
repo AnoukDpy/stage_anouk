@@ -8,12 +8,13 @@ import math
 
 class Detector(ABC):
 
-    def __init__(self, dark_count_rate: float, efficiency: float, time_window: float, transmittance: float):
+    def __init__(self, dark_count_rate: float, efficiency: float, time_window: float, transmittance: float, after_pulsing: float):
 
         self.dark_count_rate = dark_count_rate
         self.efficiency = efficiency
         self.time_window = time_window
         self.transmittance = transmittance
+        self.after_pulsing = after_pulsing
 
     @property
     def dark_count_rate(self) -> float:
@@ -75,11 +76,30 @@ class Detector(ABC):
 
         self._time_window = float(value)
 
+    @property
+    def after_pulsingself) -> float:
+        """ Return the after pulsing probability of the detector.
+
+        Must be non-negative
+        """
+        return self._after_pulsing
+
+    @after_pulsing.setter
+    def after_pulsing(self, value: float) -> None:
+        if value < 0 or value >1:
+            raise ValueError(f"after_pulsing must be non-negative and less than 1, got {value}")
+
+        self._after_pulsing = float(value)
+
     @abstractmethod
 
     def dark_count_probability(self) -> float:
 
-        """Probability of a dark count event"""
+        """Dark count probability"""
+
+    def back_ground_rate(self) -> float:
+
+        """Overall back ground rate"""
 
 ## Classes detector filles
 
@@ -96,5 +116,10 @@ class Threshold_detector(Detector):
 
     def dark_count_probability(self):
 
-        dark_count_probability = 2*self.dark_count_rate*self.time_window
-        return min(1,dark_count_probability)
+        dark_count_proba = self.dark_count_rate*self.time_window
+        return min(1,dark_count_proba)
+
+    def back_ground_rate(self):
+
+        back_ground_rate = 2*self.dark_count_probability()*(1+self.after_pulsing)
+        return min(1,back_ground_rate)
