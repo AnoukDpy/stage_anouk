@@ -7,29 +7,28 @@ from scipy.stats import poisson
 
 ## Source
 
-
 class Source(ABC):
-    def __init__(self, source_intensity: float, repetition_rate: float):
+    def __init__(self, mean_photon_number: float, repetition_rate: float):
 
-        self.source_intensity = source_intensity
+        self.mean_photon_number = mean_photon_number
 
         self.repetition_rate = repetition_rate
 
 
     @property
-    def source_intensity(self) -> float:
+    def mean_photon_number(self) -> float:
         """ Return the mean photon number per pulse.
 
         Must be non-negative
         """
-        return self._source_intensity
+        return self._mean_photon_number
 
-    @source_intensity.setter
-    def source_intensity(self, value: float) -> None:
+    @mean_photon_number.setter
+    def mean_photon_number(self, value: float) -> None:
         if value < 0:
-            raise ValueError(f"source_intensity must be non-negative, got {value}")
+            raise ValueError(f"mean_photon_number must be non-negative, got {value}")
 
-        self._source_intensity = float(value)
+        self._mean_photon_number = float(value)
 
     @property
     def repetition_rate(self) -> float:
@@ -57,26 +56,26 @@ class Source(ABC):
 
 class Attenuated_Laser(Source):
 
-    def __init__(self, source_intensity: float, repetition_rate: float):
+    def __init__(self, mean_photon_number: float, repetition_rate: float):
 
-        self.source_intensity = source_intensity
+        self.mean_photon_number = mean_photon_number
         self.repetition_rate = repetition_rate
 
-        super().__init__(source_intensity, repetition_rate)
+        super().__init__(mean_photon_number, repetition_rate)
 
     def probability_sending_i_photons(self,i) -> float:
-        return poisson.pmf(i, self.source_intensity)
+        return poisson.pmf(i, self.mean_photon_number)
 
 
 class Multiplexed_Heralded_Photon_Source(Source):
 
-    def __init__(self, source_intensity: float, repetition_rate: float, sources_num: int):
+    def __init__(self, mean_photon_number: float, repetition_rate: float, sources_num: int):
 
-        self.source_intensity = source_intensity
+        self.mean_photon_number = mean_photon_number
         self.sources_num = sources_num
         self.repetition_rate = repetition_rate
 
-        super().__init__(source_intensity, repetition_rate)
+        super().__init__(mean_photon_number, repetition_rate)
 
     @property
     def sources_num(self) -> int:
@@ -95,22 +94,22 @@ class Multiplexed_Heralded_Photon_Source(Source):
     def probability_sending_i_photons(self,i):
 
         if i==0:
-            return np.exp(-self.source_intensity*self.sources_num)
+            return np.exp(-self.mean_photon_number*self.sources_num)
 
         else:
-            return poisson.pmf(i, self.source_intensity)*(1-np.exp(-self.source_intensity*self.sources_num))/np.exp(-self.source_intensity)
+            return poisson.pmf(i, self.mean_photon_number)*(1-np.exp(-self.mean_photon_number*self.sources_num))/np.exp(-self.mean_photon_number)
 
 class Symmetric_Multiplexed_Heralded_Photon_Source(Source):
 
-    def __init__(self, source_intensity: float,repetition_rate: float, sources_num: int, transmittance: float, efficiency: float):
+    def __init__(self, mean_photon_number: float,repetition_rate: float, sources_num: int, transmittance: float, efficiency: float):
 
-        self.source_intensity = source_intensity
+        self.mean_photon_number = mean_photon_number
         self.repetition_rate = repetition_rate
         self.sources_num = sources_num
         self.transmittance = transmittance
         self.efficiency = efficiency
 
-        super().__init__(source_intensity, repetition_rate)
+        super().__init__(mean_photon_number, repetition_rate)
 
     @property
     def sources_num(self) -> int:
@@ -128,19 +127,19 @@ class Symmetric_Multiplexed_Heralded_Photon_Source(Source):
 
     def probability_sending_i_photons(self,i):
         k = math.log2(self.sources_num)
-        return (1-self.efficiency)*np.exp(-(1-self.efficiency)*self.source_intensity)*np.exp(-self.efficiency*self.source_intensity*(2/self.transmittance)**k)/math.factorial(i)+poisson.pmf(i, self.source_intensity)*(1-((1-self.efficiency)**i)*np.exp(-self.efficiency*self.source_intensity*(-1+1/self.transmittance**i)))*(1-np.exp(-self.efficiency*self.source_intensity*(2/self.transmittance)**k))/(1-np.exp(-self.efficiency*self.source_intensity/(self.transmittance**k)))
+        return (1-self.efficiency)*np.exp(-(1-self.efficiency)*self.mean_photon_number)*np.exp(-self.efficiency*self.mean_photon_number*(2/self.transmittance)**k)/math.factorial(i)+poisson.pmf(i, self.mean_photon_number)*(1-((1-self.efficiency)**i)*np.exp(-self.efficiency*self.mean_photon_number*(-1+1/self.transmittance**i)))*(1-np.exp(-self.efficiency*self.mean_photon_number*(2/self.transmittance)**k))/(1-np.exp(-self.efficiency*self.mean_photon_number/(self.transmittance**k)))
 
 class Asymmetric_Multiplexed_Heralded_Photon_Source(Source):
 
-    def __init__(self, source_intensity: float, repetition_rate: float, sources_num: int, transmittance: float, efficiency: float):
+    def __init__(self, mean_photon_number: float, repetition_rate: float, sources_num: int, transmittance: float, efficiency: float):
 
-        self.source_intensity = source_intensity
+        self.mean_photon_number = mean_photon_number
         self.repetition_rate = repetition_rate
         self.sources_num = sources_num
         self.transmittance = transmittance
         self.efficiency = efficiency
 
-        super().__init__(source_intensity, repetition_rate)
+        super().__init__(mean_photon_number, repetition_rate)
 
     @property
     def sources_num(self) -> int:
@@ -161,9 +160,9 @@ class Asymmetric_Multiplexed_Heralded_Photon_Source(Source):
         for k in range(1, self.sources_num):
             if k == self.sources_num:
                 k = self.sources_num -1
-            sum += np.exp(-self.efficiency*self.source_intensity*((self.transmittance**(1-k)-1)/(1-self.transmittance)))*(1-((1-self.efficiency)**k))*np.exp(self.efficiency*self.source_intensity-self.efficiency*self.source_intensity/self.transmittance**k)
+            sum += np.exp(-self.efficiency*self.mean_photon_number*((self.transmittance**(1-k)-1)/(1-self.transmittance)))*(1-((1-self.efficiency)**k))*np.exp(self.efficiency*self.mean_photon_number-self.efficiency*self.mean_photon_number/self.transmittance**k)
 
-        return poisson.pmf(i, self.source_intensity)*sum + (1-self.efficiency)*np.exp(-(1-self.efficiency)*self.source_intensity)*np.exp(-self.efficiency*self.source_intensity*(((2-self.transmittance)*self.transmittance**(1-self.sources_num))-1)/(1-self.transmittance))/math.factorial(i)
+        return poisson.pmf(i, self.mean_photon_number)*sum + (1-self.efficiency)*np.exp(-(1-self.efficiency)*self.mean_photon_number)*np.exp(-self.efficiency*self.mean_photon_number*(((2-self.transmittance)*self.transmittance**(1-self.sources_num))-1)/(1-self.transmittance))/math.factorial(i)
 
 
 
