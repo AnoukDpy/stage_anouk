@@ -8,27 +8,10 @@ from scipy.stats import poisson
 ## Source
 
 class Source(ABC):
-    def __init__(self, mean_photon_number: float, repetition_rate: float):
-
-        self.mean_photon_number = mean_photon_number
+    def __init__(self, repetition_rate: float):
 
         self.repetition_rate = repetition_rate
 
-
-    @property
-    def mean_photon_number(self) -> float:
-        """ Return the mean photon number per pulse.
-
-        Must be non-negative
-        """
-        return self._mean_photon_number
-
-    @mean_photon_number.setter
-    def mean_photon_number(self, value: float) -> None:
-        if value < 0:
-            raise ValueError(f"mean_photon_number must be non-negative, got {value}")
-
-        self._mean_photon_number = float(value)
 
     @property
     def repetition_rate(self) -> float:
@@ -61,7 +44,23 @@ class Attenuated_Laser(Source):
         self.mean_photon_number = mean_photon_number
         self.repetition_rate = repetition_rate
 
-        super().__init__(mean_photon_number, repetition_rate)
+        super().__init__(repetition_rate)
+
+    @property
+    def mean_photon_number(self) -> float:
+        """ Return the mean photon number per pulse.
+
+        Must be non-negative
+        """
+        return self._mean_photon_number
+
+    @mean_photon_number.setter
+    def mean_photon_number(self, value: float) -> None:
+        if value < 0:
+            raise ValueError(f"mean_photon_number must be non-negative, got {value}")
+
+        self._mean_photon_number = float(value)
+
 
     def probability_sending_i_photons(self,i) -> float:
         return poisson.pmf(i, self.mean_photon_number)
@@ -75,7 +74,22 @@ class Multiplexed_Heralded_Photon_Source(Source):
         self.sources_num = sources_num
         self.repetition_rate = repetition_rate
 
-        super().__init__(mean_photon_number, repetition_rate)
+        super().__init__(repetition_rate)
+
+    @property
+    def mean_photon_number(self) -> float:
+        """ Return the mean photon number per pulse.
+
+        Must be non-negative
+        """
+        return self._mean_photon_number
+
+    @mean_photon_number.setter
+    def mean_photon_number(self, value: float) -> None:
+        if value < 0:
+            raise ValueError(f"mean_photon_number must be non-negative, got {value}")
+
+        self._mean_photon_number = float(value)
 
     @property
     def sources_num(self) -> int:
@@ -109,7 +123,22 @@ class Symmetric_Multiplexed_Heralded_Photon_Source(Source):
         self.transmittance = transmittance
         self.efficiency = efficiency
 
-        super().__init__(mean_photon_number, repetition_rate)
+        super().__init__(repetition_rate)
+
+    @property
+    def mean_photon_number(self) -> float:
+        """ Return the mean photon number per pulse.
+
+        Must be non-negative
+        """
+        return self._mean_photon_number
+
+    @mean_photon_number.setter
+    def mean_photon_number(self, value: float) -> None:
+        if value < 0:
+            raise ValueError(f"mean_photon_number must be non-negative, got {value}")
+
+        self._mean_photon_number = float(value)
 
     @property
     def sources_num(self) -> int:
@@ -139,7 +168,22 @@ class Asymmetric_Multiplexed_Heralded_Photon_Source(Source):
         self.transmittance = transmittance
         self.efficiency = efficiency
 
-        super().__init__(mean_photon_number, repetition_rate)
+        super().__init__(repetition_rate)
+
+    @property
+    def mean_photon_number(self) -> float:
+        """ Return the mean photon number per pulse.
+
+        Must be non-negative
+        """
+        return self._mean_photon_number
+
+    @mean_photon_number.setter
+    def mean_photon_number(self, value: float) -> None:
+        if value < 0:
+            raise ValueError(f"mean_photon_number must be non-negative, got {value}")
+
+        self._mean_photon_number = float(value)
 
     @property
     def sources_num(self) -> int:
@@ -165,7 +209,58 @@ class Asymmetric_Multiplexed_Heralded_Photon_Source(Source):
         return poisson.pmf(i, self.mean_photon_number)*sum + (1-self.efficiency)*np.exp(-(1-self.efficiency)*self.mean_photon_number)*np.exp(-self.efficiency*self.mean_photon_number*(((2-self.transmittance)*self.transmittance**(1-self.sources_num))-1)/(1-self.transmittance))/math.factorial(i)
 
 
+class Single_Photon_Source(Source):
 
+    def __init__(self, repetition_rate: float, brightness: float, g2: float):
+
+        self.repetition_rate = repetition_rate
+        self.brightness = brightness
+        self.g2 = g2
+
+    @property
+    def brightness(self) -> float:
+        """ Return the brightness, the probability of a detection.
+
+        Must be non-negative and less than one.
+        """
+        return self._brightness
+
+    @brightness.setter
+    def brightness(self, value: float) -> None:
+        if value <= 0 or value>1 :
+            raise ValueError(f"brightness must be non-negative and less than 1, got {value}")
+        self._brightness = float(value)
+
+    @property
+    def g2(self) -> float:
+        """ Return the g2(0).
+
+        Must be non-negative
+        """
+        return self._g2
+
+    @g2.setter
+    def g2(self, value: float) -> None:
+        if value <= 0:
+            raise ValueError(f"g2 must be non-negative, got {value}")
+        self._g2 = float(value)
+
+
+    def probability_sending_i_photons(self,i):
+        if i<0 or i>2:
+            return 0
+
+        elif i==0:
+            return 1-self.brightness
+
+        else:
+            p2 = (1-self.g2*self.brightness-np.sqrt(1-2*self.g2*self.brightness))/self.g2
+
+            if i==1:
+                return self.brightness-p2
+
+            else:
+                return p2
 
 
 
