@@ -1,45 +1,23 @@
-from abc import ABC, abstractmethod
-from enum import Enum
-import numpy as np
-from matplotlib import pyplot as plt
-import math
-from scipy.stats import poisson
-
-from source import Source
-from source import Attenuated_Laser
-from source import Multiplexed_Heralded_Photon_Source
-
-from detector import Detector
-from detector import Threshold_detector
-
-## Functions
-
-def binary_shannon_entropy(x):
-    if x<=0 or x>=1:
-        return 0
-    return -x*math.log2(x)-(1-x)*math.log2(1-x)
-
-
-
-   ## Protocol
+## Protocol
 
 class Protocol:
 
-    def __init__(self, source: Source, detector: Detector, channel: Channel, correction_efficiency: float, distance: float):
+    def __init__(self, source: Source, detector: Detector, channel: Channel, receiver: Receiver, correction_efficiency: float, distance: float):
 
         self.source = source
         self.detector = detector
         self.channel = channel
+        self.receiver = receiver
         self.correction_efficiency = correction_efficiency
         self.distance = distance
 
     def transmittance_i_photon_state(self, i):
 
-        return 1-(1-self.detector.efficiency*self.detector.transmittance*self.channel.transmittance(self.distance))**i
+        return 1-(1-self.detector.efficiency*self.receiver.transmittance*self.channel.transmittance(self.distance))**i
 
     def yield_i_photon_state(self, i):
         #probability for Bob to have a detection assuming that Alice sent an i-photon state
-        return  self.detector.background_rate() + self.transmittance_i_photon_state(i)*(1+self.detector.after_pulsing))
+        return  self.detector.background_rate() + self.transmittance_i_photon_state(i)*(1+self.detector.after_pulsing)
 
     def gain_i_photon_state(self, i):
         #probability for Alice to send an i-photon state and for Bob to have a detection
@@ -71,8 +49,6 @@ class Protocol:
 
         return self.overall_gain()*((1-delta)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rate()/(1-delta)))-self.correction_efficiency*binary_shannon_entropy(self.overall_quantum_bit_error_rate()))
 
-
-
 ## Graphs
 """
 def key_rate_distance(min, max, values_number, source: Source, detector: Detector, channel: Channel, correction_efficiency: float):
@@ -97,11 +73,11 @@ def key_rate_distance(min, max, values_number, source: Source, detector: Detecto
     plt.grid(True)
     plt.show()
 """
-def key_rate_distance(min, max, values_number, source: Source, detector: Detector, channel: Channel, correction_efficiency: float):
+def key_rate_distance(min, max, values_number, source: Source, detector: Detector, channel: Channel, receiver: Receiver, correction_efficiency: float, title: str):
     x_values = np.linspace(min, max, values_number)
     y1_values = []
     for x in x_values:
-        protocol = Protocol(source, detector, channel, correction_efficiency, x)
+        protocol = Protocol(source, detector, channel, receiver, correction_efficiency, x)
         y1 = protocol.key_rate_decoy_state_inf_key()
         y1_values.append(y1)
 
@@ -109,7 +85,7 @@ def key_rate_distance(min, max, values_number, source: Source, detector: Detecto
     plt.yscale('log')
     plt.xlabel("Distance in km")
     plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the distance")
+    plt.title(title)
     plt.legend()
     plt.grid(True)
     plt.show()
@@ -228,30 +204,53 @@ def key_rate_hs_units_mhps(min, max, intensity: float, detector: Detector, chann
     plt.show()
 
 
-## Calls
 
-#source1 = Attenuated_Laser(0.48)
+"""Key rate evolution with the distance:"""
 
-source1 = Attenuated_Laser(0.01, 0)
+## Sources
 
-detector1 = Threshold_detector(0.17,1/10,10**(-5),5/10) #Y_0 = 1.7*10**(-6)
+source1 = Attenuated_Laser(0.48, 0)
+
+source2 = Multiplexed_Heralded_Photon_Source(0.48,0,32)
+
+source3 = Symmetric_Multiplexed_Heralded_Photon_Source(0.48,0,8, 0.2, 0.1)
+
+source4 = Asymmetric_Multiplexed_Heralded_Photon_Source(0.4,0,8, 0.2, 0.1)
+
+source5 = Single_Photon_Source(0, 80/100, 1/100)
+
+## Channels, error corrections and receivers
 
 channel1 = Channel(0.21,0.934) #Ma's values
 
 f =1.22
 
-source3 = Symmetric_Multiplexed_Heralded_Photon_Source(0.48,0, 8, 0.2, 0.1)
+receiver1 = Receiver(5/10)
 
+## Detectors
 
-source4 = Asymmetric_Multiplexed_Heralded_Photon_Source(0.4,0,8, 0.2, 0.1)
+detector1 = Threshold_detector(0.17,1/10,10**(-5),0.8/100) #Y_0 = 1.7*10**(-6)
 
-source5 = Attenuated_Laser(0, 0)
+detector2 = Threshold_detector(0.17,1/10,10**(-5),0.2/100) #without after pulsing
 
-source6 = Single_Photon_Source(0, 80/100, 1/100)
+## Calls
+
+#key_rate_distance(0,160,300,source1,detector1,channel1,receiver1,f,"Evolution of the key rate with the distance for an attenuated laser")
+
+#key_rate_distance(0,160,300,source2,detector1,channel1,receiver1,f,"Evolution of the key rate with the distance for a MHPS")
+
+#key_rate_distance(0,160,300,source3,detector2,channel1,receiver1,f,"Evolution of the key rate with the distance for a SMHPS")
+
+#key_rate_distance(0,160,300,source4,detector1,channel1,receiver1,f,"Evolution of the key rate with the distance for an AMHPS")
+
+#key_rate_distance(0,160,300,source5,detector1,channel1,receiver1,f,"Evolution of the key rate with the distance for a single photon source")
+
+##
+
 
 #key_rate_distance(0,160,300,source1,detector1,channel1,f)
 
-key_rate_distance(0,160,300,source6,detector1,channel1,f)
+#key_rate_distance(0,160,300,source6,detector1,channel1,f)
 
 intensities = [0.1, 0.2, 0.5, 0.7, 1]
 
@@ -261,7 +260,7 @@ hs_units = [2,4,8,32]
 
 #key_rate_distance_decoy_state(0,160,300,intensities,detector1,channel1,f)
 
-source2 = Multiplexed_Heralded_Photon_Source(0.48,0,32)
+
 
 #source2 = Multiplexed_Heralded_Photon_Source(0.1,32)
 
