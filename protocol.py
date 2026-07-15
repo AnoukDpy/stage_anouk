@@ -1,3 +1,19 @@
+from abc import ABC, abstractmethod
+from enum import Enum
+import numpy as np
+from matplotlib import pyplot as plt
+import math
+from scipy.stats import poisson
+
+
+## Functions
+
+def binary_shannon_entropy(x):
+    if x<=0 or x>=1:
+        return 0
+    return -x*math.log2(x)-(1-x)*math.log2(1-x)
+
+
 ## Protocol
 
 class Protocol:
