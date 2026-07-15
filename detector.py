@@ -8,12 +8,11 @@ import math
 
 class Detector(ABC):
 
-    def __init__(self, dark_count_rate: float, efficiency: float, time_window: float, transmittance: float, after_pulsing: float):
+    def __init__(self, dark_count_rate: float, efficiency: float, time_window: float, after_pulsing: float):
 
         self.dark_count_rate = dark_count_rate
         self.efficiency = efficiency
         self.time_window = time_window
-        self.transmittance = transmittance
         self.after_pulsing = after_pulsing
 
     @property
@@ -46,20 +45,6 @@ class Detector(ABC):
 
         self._efficiency = float(value)
 
-    @property
-    def transmittance(self) -> float:
-        """ Return the transmittance of the detector.
-
-        Must be non-negative and less than 1
-        """
-        return self._transmittance
-
-    @transmittance.setter
-    def transmittance(self, value: float) -> None:
-        if value < 0 or value >1:
-            raise ValueError(f"transmittance must be non-negative and less than 1, got {value}")
-
-        self._transmittance = float(value)
 
     @property
     def time_window(self) -> float:
@@ -77,7 +62,7 @@ class Detector(ABC):
         self._time_window = float(value)
 
     @property
-    def after_pulsingself) -> float:
+    def after_pulsing(self) -> float:
         """ Return the after pulsing probability of the detector.
 
         Must be non-negative
@@ -97,7 +82,7 @@ class Detector(ABC):
 
         """Dark count probability"""
 
-    def back_ground_rate(self) -> float:
+    def background_rate(self) -> float:
 
         """Overall back ground rate"""
 
@@ -105,21 +90,21 @@ class Detector(ABC):
 
 class Threshold_detector(Detector):
 
-    def __init__(self, dark_count_rate: float, efficiency: float, time_window: float, transmittance):
+    def __init__(self, dark_count_rate: float, efficiency: float, time_window: float, after_pulsing: float):
 
         self.dark_count_rate = dark_count_rate
         self.efficiency = efficiency
         self.time_window = time_window
-        self.transmittance = transmittance
+        self.after_pulsing = after_pulsing
 
-        super().__init__(dark_count_rate, efficiency, time_window, transmittance)
+        super().__init__(dark_count_rate, efficiency, time_window, after_pulsing)
 
     def dark_count_probability(self):
 
         dark_count_proba = self.dark_count_rate*self.time_window
         return min(1,dark_count_proba)
 
-    def back_ground_rate(self):
+    def background_rate(self):
 
-        back_ground_rate = 2*self.dark_count_probability()*(1+self.after_pulsing)
-        return min(1,back_ground_rate)
+        background_rate = 2*self.dark_count_probability()*(1+self.after_pulsing)
+        return min(1,background_rate)
