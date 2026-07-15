@@ -44,21 +44,22 @@ class Channel:
 
 class Protocol:
 
-    def __init__(self, source: Source, detector: Detector, channel: Channel, correction_efficiency: float, distance: float):
+    def __init__(self, source: Source, detector: Detector, channel: Channel, receiver: Receiver, correction_efficiency: float, distance: float):
 
         self.source = source
         self.detector = detector
         self.channel = channel
+        self.receiver = receiver
         self.correction_efficiency = correction_efficiency
         self.distance = distance
 
     def transmittance_i_photon_state(self, i):
 
-        return 1-(1-self.detector.efficiency*self.detector.transmittance*self.channel.transmittance(self.distance))**i
+        return 1-(1-self.detector.efficiency*self.receiver.transmittance*self.channel.transmittance(self.distance))**i
 
     def yield_i_photon_state(self, i):
         #probability for Bob to have a detection assuming that Alice sent an i-photon state
-        return  self.detector.dark_count_probability() + self.transmittance_i_photon_state(i)
+        return  self.detector.background_rate() + self.transmittance_i_photon_state(i)*(1+self.detector.after_pulsing))
 
     def gain_i_photon_state(self, i):
         #probability for Alice to send an i-photon state and for Bob to have a detection
@@ -72,7 +73,7 @@ class Protocol:
 
 
     def quantum_bit_error_rate(self,i):
-        return (1/2 * self.detector.dark_count_probability() + self.channel.probability_hitting_wrong_detector() * self.transmittance_i_photon_state(i))/self.yield_i_photon_state(i)
+        return (1/2 * self.detector.background_rate() + (self.channel.probability_hitting_wrong_detector()+1/2 *self.detector.after_pulsing ) * self.transmittance_i_photon_state(i))/self.yield_i_photon_state(i)
 
     def overall_quantum_bit_error_rate(self):
         qber = 0
@@ -82,7 +83,7 @@ class Protocol:
         return qber
 
     def key_rate_decoy_state_inf_key(self):
-        return self.source.probability_sending_i_photons(0)*self.detector.dark_count_probability() + self.source.probability_sending_i_photons(1)*self.yield_i_photon_state(1)*(1-binary_shannon_entropy(self.quantum_bit_error_rate(1)))-self.overall_gain()*self.correction_efficiency*binary_shannon_entropy(self.overall_quantum_bit_error_rate())
+        return self.source.probability_sending_i_photons(0)*self.detector.background_rate() + self.source.probability_sending_i_photons(1)*self.yield_i_photon_state(1)*(1-binary_shannon_entropy(self.quantum_bit_error_rate(1)))-self.overall_gain()*self.correction_efficiency*binary_shannon_entropy(self.overall_quantum_bit_error_rate())
 
     def key_rate_no_decoy_state_inf_key(self):
 
