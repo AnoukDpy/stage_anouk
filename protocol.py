@@ -21,24 +21,6 @@ def binary_shannon_entropy(x):
 
 
 
-## Channel
-
-class Channel:
-
-    def __init__(self, loss_coef: float, visibility: float):
-
-        self.loss_coef = loss_coef
-        self.visibility = visibility
-
-    def transmittance(self, distance):
-
-        return 10**(-self.loss_coef*distance/10)
-
-    def probability_hitting_wrong_detector(self):
-
-        return (1-self.visibility)/2
-
-
    ## Protocol
 
 class Protocol:
