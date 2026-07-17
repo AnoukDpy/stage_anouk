@@ -16,7 +16,18 @@ def binary_shannon_entropy(x):
 
 ## Protocol
 
-class Protocol:
+class Protocol(ABC):
+
+    def __init__(self, source: Source, detector: Detector, channel: Channel, receiver: Receiver, correction_efficiency: float, distance: float):
+
+        self.source = source
+        self.detector = detector
+        self.channel = channel
+        self.receiver = receiver
+        self.correction_efficiency = correction_efficiency
+        self.distance = distance
+
+class BB84(Protocol):
 
     def __init__(self, source: Source, detector: Detector, channel: Channel, receiver: Receiver, correction_efficiency: float, distance: float):
 
@@ -65,6 +76,61 @@ class Protocol:
 
         return self.overall_gain()*((1-delta)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rate()/(1-delta)))-self.correction_efficiency*binary_shannon_entropy(self.overall_quantum_bit_error_rate()))
 
+
+class BB92(Protocol):
+
+    def __init__(self, source: Source, detector1: Detector, detector2: Detector, channel1: Channel, channel2: Channel, receiver1: Receiver, receiver2: Receiver, correction_efficiency: float, distance1: float, distance2: float):
+
+        self.source = source
+        self.detector1 = detector1
+        self.detector2 = detector2
+        self.channel1 = channel1
+        self.channel2 = channel2
+        self.receiver1 = receiver1
+        self.receiver2 = receiver2
+        self.correction_efficiency = correction_efficiency
+        self.distance1 = distance1
+        self.distance2 = distance2
+
+    def transmittance_i_photon_state_1(self, i):
+
+        return 1-(1-self.detector1.efficiency*self.receiver1.transmittance*self.channel1.transmittance(self.distance1)*(1+self.detector1.after_pulsing))**i
+
+    def transmittance_i_photon_state_2(self, i):
+
+        return 1-(1-self.detector2.efficiency*self.receiver2.transmittance*self.channel2.transmittance(self.distance2)*(1+self.detector2.after_pulsing))**i
+
+    def yield_i_photon_state(self, i):
+
+        return  (1-(1-self.detector1.background_rate())*(1-self.transmittance_i_photon_state1(i)))*(1-(1-self.detector2.background_rate())*(1-self.transmittance_i_photon_state2(i)))
+
+    def gain_i_photon_state(self, i):
+
+        return self.yield_i_photon_state(i)*self.source.probability_sending_i_photons(i)
+
+
+    def entanglement_error(self,n,m):
+
+        return 1/2+((1/2+(self.channel1.probability_hitting_wrong_detector()+self.channel2.probability_hitting_wrong_detector()+(self.detector1.after_pulsing+self.detector2.after_pulsing)/4)/(self.detector1.after_pulsing+self.detector2.after_pulsing)/2)/self.yield_i_photon_state(n))*(self.transmittance_i_photon_state_1(n-m)-self.transmittance_i_photon_state_1(m))*(self.transmittance_i_photon_state_2(n-m)-self.transmittance_i_photon_state_2(n-m))
+
+
+    def quantum_bit_error_rate(self,i):
+        qber = 0
+        for n in range(0,i+1):
+            qber = qber + slef.entanglement_error(n,m)
+        return qber/(1+i)
+
+
+    def overall_quantum_bit_error_rate(self):
+        qber = 0
+        for i in range(0,50):
+            qber += (self.quantum_bit_error_rate(i)*self.yield_i_photon_state(i)*self.source.probability_sending_i_photons(i))
+        qber = qber/self.overall_gain()
+        return qber
+
+    def key_rate(self):
+
+        return (self.overall_quantum_bit_error_rate()/2)*(1-binary_shannon_entropy(overall_quantum_bit_error_rate())*(1+self.correction_efficiency))
 ## Graphs
 """
 def key_rate_distance(min, max, values_number, source: Source, detector: Detector, channel: Channel, correction_efficiency: float):
