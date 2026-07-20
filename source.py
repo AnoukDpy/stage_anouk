@@ -31,7 +31,7 @@ class Source(ABC):
 
     @abstractmethod
 
-    def probability_sending_i_photons(self,i) -> float:
+    def probability_sending_i_state(self,i) -> float:
         """ Probability of sending an i-photon state """
 
 
@@ -62,7 +62,7 @@ class Attenuated_Laser(Source):
         self._mean_photon_number = float(value)
 
 
-    def probability_sending_i_photons(self,i) -> float:
+    def probability_sending_i_state(self,i) -> float:
         return poisson.pmf(i, self.mean_photon_number)
 
 
@@ -105,7 +105,7 @@ class Multiplexed_Heralded_Photon_Source(Source):
             raise ValueError(f"sources_num must be non-negative, got {value}")
         self._sources_num = int(value)
 
-    def probability_sending_i_photons(self,i):
+    def probability_sending_i_state(self,i):
 
         if i==0:
             return np.exp(-self.mean_photon_number*self.sources_num)
@@ -154,7 +154,7 @@ class Symmetric_Multiplexed_Heralded_Photon_Source(Source):
             raise ValueError(f"sources_num must be non-negative and a power of 2  , got {value}")
         self._sources_num = int(value)
 
-    def probability_sending_i_photons(self,i):
+    def probability_sending_i_state(self,i):
         k = math.log2(self.sources_num)
         return (1-self.efficiency)*np.exp(-(1-self.efficiency)*self.mean_photon_number)*np.exp(-self.efficiency*self.mean_photon_number*(2/self.transmittance)**k)/math.factorial(i)+poisson.pmf(i, self.mean_photon_number)*(1-((1-self.efficiency)**i)*np.exp(-self.efficiency*self.mean_photon_number*(-1+1/self.transmittance**i)))*(1-np.exp(-self.efficiency*self.mean_photon_number*(2/self.transmittance)**k))/(1-np.exp(-self.efficiency*self.mean_photon_number/(self.transmittance**k)))
 
@@ -199,7 +199,7 @@ class Asymmetric_Multiplexed_Heralded_Photon_Source(Source):
             raise ValueError(f"sources_num must be non-negative, got {value}")
         self._sources_num = int(value)
 
-    def probability_sending_i_photons(self,i):
+    def probability_sending_i_state(self,i):
         sum = 0
         for k in range(1, self.sources_num):
             if k == self.sources_num:
@@ -246,7 +246,7 @@ class Single_Photon_Source(Source):
         self._g2 = float(value)
 
 
-    def probability_sending_i_photons(self,i):
+    def probability_sending_i_state(self,i):
         if i<0 or i>2:
             return 0
 
@@ -261,6 +261,38 @@ class Single_Photon_Source(Source):
 
             else:
                 return p2
+
+
+class Entangled_PDC_Source(Source):
+
+    def __init__(self, mean_photon_number: float, repetition_rate: float):
+
+        self.mean_photon_number = mean_photon_number
+        self.repetition_rate = repetition_rate
+
+        super().__init__(repetition_rate)
+
+    @property
+    def mean_photon_number(self) -> float:
+        """ Return the mean photon number per pulse.
+
+        Must be non-negative
+        """
+        return self._mean_photon_number
+
+    @mean_photon_number.setter
+    def mean_photon_number(self, value: float) -> None:
+        if value < 0:
+            raise ValueError(f"mean_photon_number must be non-negative, got {value}")
+
+        self._mean_photon_number = float(value)
+
+    def brightness_parameter(self):
+        return self.mean_photon_number/2
+
+
+    def probability_sending_i_state(self,i) -> float:
+        return ((i+1)*self.brightness_parameter()**i)/(self.brightness_parameter()+1)**(i+2)
 
 
 
