@@ -77,7 +77,7 @@ class BB84(Protocol):
         return self.overall_gain()*((1-delta)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rate()/(1-delta)))-self.correction_efficiency*binary_shannon_entropy(self.overall_quantum_bit_error_rate()))
 
 
-class BB92(Protocol):
+class BBM92(Protocol):
 
     def __init__(self, source: Source, detector1: Detector, detector2: Detector, channel1: Channel, channel2: Channel, receiver1: Receiver, receiver2: Receiver, correction_efficiency: float, distance1: float, distance2: float):
 
@@ -180,11 +180,11 @@ def key_rate_distance_bb84(min, max, values_number, source: Source, detector: De
     plt.grid(True)
     plt.show()
 
-def key_rate_distance_bb92(min, max, values_number, source: Source, detector1: Detector,detector2: Detector, channel1: Channel,channel2: Channel, receiver1: Receiver,receiver2: Receiver, correction_efficiency: float, title: str):
+def key_rate_distance_BBM92(min, max, values_number, source: Source, detector1: Detector,detector2: Detector, channel1: Channel,channel2: Channel, receiver1: Receiver,receiver2: Receiver, correction_efficiency: float, title: str):
     x_values = np.linspace(min, max, values_number)
     y1_values = []
     for x in x_values:
-        protocol = BB92(source, detector1,detector2, channel1,channel2, receiver1,receiver2, correction_efficiency, x,0)
+        protocol = BBM92(source, detector1,detector2, channel1,channel2, receiver1,receiver2, correction_efficiency, x,0)
         y1 = protocol.key_rate()
         y1_values.append(y1)
 
@@ -359,7 +359,7 @@ detector3 = Threshold_detector(6.02,14.5/100,10**(-6),0) #without after pulsing
 
 #key_rate_distance_bb84(0,160,300,source5,detector1,channel1,receiver1,f,"Evolution of the key rate with the distance for a single photon source")
 
-key_rate_distance_bb92(0,160,300, source6, detector3, detector3, channel2, channel2, receiver3, receiver3, 1.22, "Evolution of the key rate with the distance for an entangled PDC source")
+key_rate_distance_BBM92(0,160,300, source6, detector3, detector3, channel2, channel2, receiver3, receiver3, 1.22, "Evolution of the key rate with the distance for an entangled PDC source")
 
 ##
 
