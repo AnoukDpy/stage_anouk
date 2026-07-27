@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import math
 from scipy.stats import poisson
-
+from typing import Optional
 
 ## Source
 
@@ -295,6 +295,61 @@ class Entangled_PDC_Source(Source):
     def probability_sending_i_state(self,i) -> float:
         return ((i+1)*self.brightness_parameter()**i)/(self.brightness_parameter()+1)**(i+2)
 
+class Spiral_Resonator(Source):
+
+    def __init__(self,*,repetition_rate: float, esperance: float, g2: float):
+
+        self.repetition_rate = repetition_rate
+        self.esperance = esperance
+        self.g2 = g2
+
+    @property
+    def esperance(self) -> float:
+        """ Return the esperance, the probability of a detection.
+
+        Must be non-negative and less than one.
+        """
+        return self._esperance
+
+    @esperance.setter
+    def esperance(self, value: float) -> None:
+        if value <= 0 or value>1 :
+            raise ValueError(f"esperance must be non-negative and less than 1, got {value}")
+        self._esperance = float(value)
+
+    @property
+    def g2(self) -> float:
+        """ Return the g2(0).
+
+        Must be non-negative
+        """
+        return self._g2
+
+    @g2.setter
+    def g2(self, value: float) -> None:
+        if value <= 0:
+            raise ValueError(f"g2 must be non-negative, got {value}")
+        self._g2 = float(value)
+
+    def probability_sending_i_state(self,i):
+        if i<0 or i>2:
+            return 0
+        else:
+            p2 = (self.esperance**2)*self.g2/2
+
+            if i==2:
+                return p2
+
+            else:
+                p1 = self.esperance-2*p2
+
+                if i == 1:
+                    return p1
+
+                else:
+                    return 1-(p1+p2)
+
+
 
 ## Detector
 
@@ -382,7 +437,7 @@ class Detector(ABC):
 
 class Threshold_detector(Detector):
 
-    def __init__(self, dark_count_rate: float, efficiency: float, time_window: float, after_pulsing: float):
+    def __init__(self,*, dark_count_rate: float, efficiency: float, time_window: float, after_pulsing: float):
 
         self.dark_count_rate = dark_count_rate
         self.efficiency = efficiency
@@ -408,13 +463,32 @@ def binary_shannon_entropy(x):
         return 0
     return -x*math.log2(x)-(1-x)*math.log2(1-x)
 
+"""
+def find_visibility(qber = float, protocol: New_BBM92):
+
+    def transmittance_z(i):
+        return protocol.transmittance_i_photon_state1_Z(i)
+
+    sum = 0
+    for i in range(0,50):
+        sum_m=0
+        for m in range(0,i):
+            sum_m= sum_m+(transmittance_z(i-m)-transmittance_z(i))**2
+        sum = sum + protocol.source.probability_sending_i_state(i)*sum_m/(i+1)
+
+    ed = 1/2 + (protocol.overall_quantum_bit_error_rateZ()*protocol.quantum_bit_error_rateZ()-protocol.quantum_bit_error_rateZ()/2)/sum
+    """
+
+
+
+
 
 ## FiberChannel
 
-class FiberFiberChannel:
+class FiberChannel:
     """A fiber optic communication channel."""
 
-    def __init__(self, loss_per_km: float, visibility: float):
+    def __init__(self,*, loss_per_km: float, visibility: float, optical_component_losses: np.ndarray):
         """Initialize the fiber channel with the given parameters.
 
         Parameters
@@ -425,6 +499,7 @@ class FiberFiberChannel:
         """
         self.loss_per_km = loss_per_km
         self.visibility = visibility
+        self.optical_component_losses = optical_component_losses
 
     @property
     def loss_per_km(self) -> float:
@@ -437,6 +512,21 @@ class FiberFiberChannel:
             raise ValueError(f"loss_per_km must be positive, got {value}")
         self._loss_per_km = value
 
+    @property
+    def optical_component_losses(self) -> np.ndarray:
+        """Return the attenuation of the optical components in dB."""
+        return self._optical_component_losses
+
+    @optical_component_losses.setter
+    def optical_component_losses(self, value: np.ndarray) -> None:
+        if np.any(value <= 0):
+            raise ValueError(f"All optical_component_losses values must be positive (> 0), got minimum: {np.min(value)}")
+        self._optical_component_losses = value
+
+    def components_transmittance(self):
+        loss = np.sum(self.optical_component_losses)
+        return 10**(-loss/10)
+
     def compute_channel_losses(self, distance_km) -> float:
         """Return the total losses of the fiber channel in dB."""
         if distance_km< 0:
@@ -444,7 +534,7 @@ class FiberFiberChannel:
         return distance_km * self.loss_per_km
 
     def transmittance(self, distance_km):
-        return 10**(-self.compute_channel_losses(distance_km)/10)
+        return 10**(-self.compute_channel_losses(distance_km)/10)*self.components_transmittance()
 
     def probability_hitting_wrong_detector(self):
         return (1-self.visibility)/2
@@ -453,7 +543,7 @@ class FiberFiberChannel:
 
 class Receiver:
 
-    def __init__(self, transmittance: float):
+    def __init__(self,*, transmittance: float):
 
         self.transmittance = transmittance
 
@@ -599,27 +689,57 @@ class BBM92(Protocol):
 
 class New_BBM92(Protocol):
 
-    def __init__(self, source: Source, detector1: Detector, detector2: Detector, FiberChannel1: FiberChannel, FiberChannel2: FiberChannel, receiver1: Receiver, receiver2: Receiver, correction_efficiency: float, distance_km1: float, distance_km2: float):
+    def __init__(self, *, source: Source, detector1: Detector, FiberChannel1_x: FiberChannel, receiver1: Receiver, correction_efficiency: float, distance_km1: float, detector2: Optional[Detector] = None, FiberChannel2_x: Optional[FiberChannel] = None, FiberChannel1_z: Optional[FiberChannel] = None, FiberChannel2_z: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None, distance_km2: Optional[float] = None):
 
         self.source = source
         self.detector1 = detector1
-        self.detector2 = detector2
-        self.FiberChannel1 = FiberChannel1
-        self.FiberChannel2 = FiberChannel2
+
+        if detector2 is None:
+                    self.detector2 = detector1
+        else:
+            self.detector2 = detector2
+
+        self.FiberChannel1_x = FiberChannel1_x
+
+        if FiberChannel2_x is None:
+            self.FiberChannel2_x = FiberChannel1_x
+        else:
+            self.FiberChannel2_x = FiberChannel2_x
+
+        if FiberChannel1_z is None:
+            self.FiberChannel1_z = FiberChannel1_x
+        else:
+            self.FiberChannel1_z = FiberChannel1_z
+
+        if FiberChannel2_z is None:
+            self.FiberChannel2_z = FiberChannel1_x
+        else:
+            self.FiberChannel2_z = FiberChannel2_z
+
         self.receiver1 = receiver1
-        self.receiver2 = receiver2
+
+        if receiver2 is None:
+            self.receiver2 = receiver1
+        else:
+            self.receiver2 = receiver2
+
         self.correction_efficiency = correction_efficiency
+
         self.distance_km1 = distance_km1
-        self.distance_km2 = distance_km2
+
+        if distance_km2 is None:
+            self.distance_km2 = distance_km1
+        else:
+            self.distance_km2 = distance_km2
 
 ## Basis Z
     def transmittance_i_photon_state1_Z(self, i):
 
-        return 1-(1-self.detector1.efficiency*self.receiver1.transmittance*self.FiberChannel1.transmittance(self.distance_km1)*(1+self.detector1.after_pulsing))**i
+        return 1-(1-self.detector1.efficiency*self.receiver1.transmittance*self.FiberChannel1_z.transmittance(self.distance_km1)*(1+self.detector1.after_pulsing))**i
 
     def transmittance_i_photon_state2_Z(self, i):
 
-        return 1-(1-self.detector2.efficiency*self.receiver2.transmittance*self.FiberChannel2.transmittance(self.distance_km2)*(1+self.detector2.after_pulsing))**i
+        return 1-(1-self.detector2.efficiency*self.receiver2.transmittance*self.FiberChannel2_z.transmittance(self.distance_km2)*(1+self.detector2.after_pulsing))**i
 
     def yield_i_photon_stateZ(self, i):
 
@@ -636,9 +756,9 @@ class New_BBM92(Protocol):
         return gain
 
 
-    def entanglement_error Z(self,n,m):
+    def entanglement_errorZ(self,n,m):
 
-        return 1/2-((1/2-((self.FiberChannel1.probability_hitting_wrong_detector()+self.FiberChannel2.probability_hitting_wrong_detector()+(self.detector1.after_pulsing+self.detector2.after_pulsing)/4)/(1+(self.detector1.after_pulsing+self.detector2.after_pulsing)/2)))/self.yield_i_photon_stateZ(n))*(-self.transmittance_i_photon_state1_Z(n-m)+self.transmittance_i_photon_state1_Z(m))*(-self.transmittance_i_photon_state2_Z(n-m)+self.transmittance_i_photon_state2_Z(m))
+        return 1/2-((1/2-((self.FiberChannel1_z.probability_hitting_wrong_detector()+self.FiberChannel2_z.probability_hitting_wrong_detector()+(self.detector1.after_pulsing+self.detector2.after_pulsing)/4)/(1+(self.detector1.after_pulsing+self.detector2.after_pulsing)/2)))/self.yield_i_photon_stateZ(n))*(-self.transmittance_i_photon_state1_Z(n-m)+self.transmittance_i_photon_state1_Z(m))*(-self.transmittance_i_photon_state2_Z(n-m)+self.transmittance_i_photon_state2_Z(m))
 
 
     def quantum_bit_error_rateZ(self,i):
@@ -652,17 +772,17 @@ class New_BBM92(Protocol):
         qber = 0
         for i in range(0,50):
             qber += (self.quantum_bit_error_rateZ(i)*self.yield_i_photon_stateZ(i)*self.source.probability_sending_i_state(i))
-        qber = qber/self.overall_gain1()
+        qber = qber/self.overall_gainZ()
         return max(0,qber)
 
 ## Basis X
     def transmittance_i_photon_state1_X(self, i):
 
-        return 1-(1-self.detector1.efficiency*self.receiver1.transmittance*self.FiberChannel1.transmittance(self.distance_km1)*(1+self.detector1.after_pulsing))**i
+        return 1-(1-self.detector1.efficiency*self.receiver1.transmittance*self.FiberChannel1_x.transmittance(self.distance_km1)*(1+self.detector1.after_pulsing))**i
 
     def transmittance_i_photon_state2_X(self, i):
 
-        return 1-(1-self.detector2.efficiency*self.receiver2.transmittance*self.FiberChannel2.transmittance(self.distance_km2)*(1+self.detector2.after_pulsing))**i
+        return 1-(1-self.detector2.efficiency*self.receiver2.transmittance*self.FiberChannel2_x.transmittance(self.distance_km2)*(1+self.detector2.after_pulsing))**i
 
     def yield_i_photon_stateX(self, i):
 
@@ -681,7 +801,7 @@ class New_BBM92(Protocol):
 
     def entanglement_errorX(self,n,m):
 
-        return 1/2-((1/2-((self.FiberChannel1.probability_hitting_wrong_detector()+self.FiberChannel2.probability_hitting_wrong_detector()+(self.detector1.after_pulsing+self.detector2.after_pulsing)/4)/(1+(self.detector1.after_pulsing+self.detector2.after_pulsing)/2)))/self.yield_i_photon_stateX(n))*(-self.transmittance_i_photon_state1_X(n-m)+self.transmittance_i_photon_state1_X(m))*(-self.transmittance_i_photon_state2_X(n-m)+self.transmittance_i_photon_state2_X(m))
+        return 1/2-((1/2-((self.FiberChannel1_x.probability_hitting_wrong_detector()+self.FiberChannel2_x.probability_hitting_wrong_detector()+(self.detector1.after_pulsing+self.detector2.after_pulsing)/4)/(1+(self.detector1.after_pulsing+self.detector2.after_pulsing)/2)))/self.yield_i_photon_stateX(n))*(-self.transmittance_i_photon_state1_X(n-m)+self.transmittance_i_photon_state1_X(m))*(-self.transmittance_i_photon_state2_X(n-m)+self.transmittance_i_photon_state2_X(m))
 
 
     def quantum_bit_error_rateX(self,i):
@@ -893,100 +1013,8 @@ def graph_proba(min, max, source: Source, title: str):
     plt.grid(True)
     plt.show()
 
-
-
-
 """Key rate evolution with the distance_km:"""
 
-## Sources
-
-source1 = Attenuated_Laser(0.48, 0)
-
-source2 = Multiplexed_Heralded_Photon_Source(0.48,0,32)
-
-source3 = Symmetric_Multiplexed_Heralded_Photon_Source(0.48,0,8, 0.2, 0.1)
-
-source4 = Asymmetric_Multiplexed_Heralded_Photon_Source(0.4,0,8, 0.2, 0.1)
-
-source5 = Single_Photon_Source(0, 80/100, 1/100)
-
-source6 = Entangled_PDC_Source(0.053, 0)
-
-## FiberChannels, error corrections and receivers
-
-FiberChannel1 = FiberFiberChannel(0.21,0.934) #Ma's values
-
-FiberChannel2 = FiberFiberChannel(0.21,0.97)
-
-f =1.22
-
-receiver1 = Receiver(5/10)
-receiver2 = Receiver(14/100)
-receiver3 = Receiver(1)
-## Detectors
-
-detector1 = Threshold_detector(0.17,1/10,10**(-5),0.8/100) #Y_0 = 1.7*10**(-6)
-
-detector2 = Threshold_detector(0.17,1/10,10**(-5),0) #without after pulsing
-
-detector3 = Threshold_detector(6.02,14.5/100,10**(-6),0) #without after pulsing
-
-## Calls
-
-#key_rate_distance_km_bb84(0,160,300,source1,detector1,FiberChannel1,receiver1,f,"Evolution of the key rate with the distance_km for an attenuated laser")
-
-#key_rate_distance_km_bb84(0,160,300,source2,detector1,FiberChannel1,receiver1,f,"Evolution of the key rate with the distance_km for a MHPS")
-
-#key_rate_distance_km_bb84(0,160,300,source3,detector2,FiberChannel1,receiver1,f,"Evolution of the key rate with the distance_km for a SMHPS")
-
-#key_rate_distance_km_bb84(0,160,300,source4,detector1,FiberChannel1,receiver1,f,"Evolution of the key rate with the distance_km for an AMHPS")
-
-#key_rate_distance_km_bb84(0,160,300,source5,detector1,FiberChannel1,receiver1,f,"Evolution of the key rate with the distance_km for a single photon source")
-
-#key_rate_distance_km_BBM92(0,160,300, source6, detector3, detector3, FiberChannel2, FiberChannel2, receiver3, receiver3, 1.22, "Evolution of the key rate with the distance_km for an entangled PDC source")
-
-#graph_proba(0,25,source1, "Attenuated laser statistic")
-
-#graph_proba(0,25,source3, "SMHPS statistic for 8 HS units")
-
-#graph_proba(0,25,source4, "AMHPS statistic for 8 HS units")
-
-#graph_proba(0,25,source6, "Entangled PDC source statistic")
-
-##
-
-
-#key_rate_distance_km_bb84(0,160,300,source1,detector1,FiberChannel1,f)
-
-#key_rate_distance_km_bb84(0,160,300,source6,detector1,FiberChannel1,f)
-
-intensities = [0.1, 0.2, 0.5, 0.7, 1]
-
-hs_units = [2,4,8,32]
-
-#key_rate_distance_km_bb84_mhps(0,160,300,0.48,hs_units,detector1,FiberChannel1,f)
-
-#key_rate_distance_km_bb84_decoy_state(0,160,300,intensities,detector1,FiberChannel1,f)
-
-
-
-#source2 = Multiplexed_Heralded_Photon_Source(0.1,32)
-
-#key_rate_distance_km_bb84(0,160,300,source2,detector1,FiberChannel1,f)
-
-distance_km1 = 40
-
-distance_km2 = 10
-
-#key_rate_intensity_attenuated_laser(0,1.2,200,detector1,FiberChannel1,f,distance_km1)
-
-#key_rate_intensity_attenuated_laser_test(0,1.2,200,detector1,FiberChannel1,f,distance_km1)
-
-#key_rate_intensity_attenuated_laser(0,0.1,200,detector1,FiberChannel1,f,distance_km2)
-
-#key_rate_intensity_mhps(0,1.2,200,32,detector1,FiberChannel1,f,distance_km1)
-
-#key_rate_hs_units_mhps(1,30,0.62,detector1,FiberChannel1,f,distance_km1)
 
 ## Values for tests
 """ I put where the values are coming from and the results in the section 'Example' of the latex doc"""
@@ -1045,7 +1073,7 @@ def key_rate_loss_bb84(min, max, values_number, source: Source, detector: Detect
     plt.grid(True)
     plt.show()
 
-def key_rate_loss_bbm92(min, max, values_number, source: Source, detector1: Detector,detector2: Detector, FiberChannel1: FiberChannel,FiberChannel2: FiberChannel, receiver1: Receiver,receiver2: Receiver, correction_efficiency: float, title: str):
+def key_rate_loss_bbm92(*,min, max, values_number, source: Source, detector1: Detector,detector2: Detector, FiberChannel1: FiberChannel,FiberChannel2: FiberChannel, receiver1: Receiver,receiver2: Receiver, correction_efficiency: float, title: str):
     x_values = np.linspace(min, max, values_number)
     horiz_axis = np.linspace(min*FiberChannel1.loss_per_km, max*FiberChannel1.loss_per_km, values_number)
     y1_values = []
@@ -1063,7 +1091,25 @@ def key_rate_loss_bbm92(min, max, values_number, source: Source, detector1: Dete
     plt.grid(True)
     plt.show()
 
+def key_rate_loss_bbm92_new(*, min, max, values_number, source: Source, detector1: Detector, FiberChannel1_x: FiberChannel, receiver1: Receiver, correction_efficiency: float, title: str, detector2: Optional[Detector] = None, FiberChannel2_x: Optional[FiberChannel] = None, FiberChannel1_z: Optional[FiberChannel] = None, FiberChannel2_z: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None):
 
+    x_values = np.linspace(min, max, values_number)
+    horiz_axis = np.linspace(min*FiberChannel1_x.loss_per_km, max*FiberChannel1_x.loss_per_km, values_number)
+    y1_values = []
+    for x in x_values:
+        protocol = New_BBM92(source=source, detector1=detector1, detector2=detector2, FiberChannel1_x=FiberChannel1_x, FiberChannel2_x=FiberChannel2_x, FiberChannel1_z=FiberChannel1_z, FiberChannel2_z=FiberChannel2_z, receiver1=receiver1, receiver2=receiver2, correction_efficiency=correction_efficiency, distance_km1=x, distance_km2=0)
+        y1 = protocol.key_rate()
+        y1_values.append(y1)
+
+    plt.plot(horiz_axis, y1_values, color = 'red')
+    plt.yscale('log')
+    plt.xlabel("Loss in dB")
+    plt.ylabel("Key rate in bpp")
+    plt.title(title)
+    plt.grid(True)
+    plt.show()
+
+"""
 # Test 1:
 
 source_1 = Attenuated_Laser(0.48, 0)
@@ -1072,7 +1118,7 @@ detector_1 = Threshold_detector(0.17,5/100,10**(-5),0) #Y_0 = 1.7*10**(-6)
 
 receiver_1 = Receiver(0.9)
 
-FiberChannel_1 = FiberFiberChannel(0.21,0.934)
+#FiberChannel_1 = FiberFiberChannel(0.21,0.934)
 
 f_1 = 1.22
 
@@ -1089,7 +1135,7 @@ detector_2 = Threshold_detector(20,0.25,10**(-8),0)
 
 receiver_2 = Receiver(1)
 
-FiberChannel_2 = FiberFiberChannel(0.2,0.99)
+#FiberChannel_2 = FiberFiberChannel(0.2,0.99)
 
 f_2 = 1.05
 
@@ -1106,7 +1152,7 @@ detector_3 = Threshold_detector(20,0.25,10**(-8),0)
 
 receiver_3 = Receiver(1)
 
-FiberChannel_3 = FiberFiberChannel(0.2,0.99)
+#FiberChannel_3 = FiberFiberChannel(0.2,0.99)
 
 f_3 = 1.05
 
@@ -1122,10 +1168,42 @@ detector_4 = Threshold_detector(6.02,14.5/100,10**(-6),0)
 
 receiver_4 = Receiver(1)
 
-FiberChannel_4 = FiberFiberChannel(0.21,0.97)
+#FiberChannel_4 = FiberFiberChannel(0.21,0.97)
 
 f_4 = 1.22
 
-key_rate_loss_bbm92(0,170,300, source_4, detector_4, detector_4, FiberChannel_4, FiberChannel_4, receiver_4, receiver_4, f_4, "Evolution of the key rate with the loss for an entangled PDC source")
+#key_rate_loss_bbm92(0,170,300, source_4, detector_4, detector_4, FiberChannel_4, FiberChannel_4, receiver_4, receiver_4, f_4, "Evolution of the key rate with the loss for an entangled PDC source")
 
 #graph_proba(0,25,source_4, "Entangles PDC source statistic")
+"""
+# Test 5:
+
+
+
+source_5 = Spiral_Resonator(repetition_rate=0, esperance=5.11*10**(-5), g2=0.000001)
+
+detector_5 = Threshold_detector(dark_count_rate=3500, efficiency=0.20, time_window=310*10**(-12), after_pulsing=0)
+
+"""
+losses_z = np.array([1.5,4,3])
+
+losses_x = np.array([1.5,4,3,3])
+"""
+
+losses_z = np.array([0.000001])
+
+losses_x = np.array([0.000001])
+
+channel_5_z = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_losses = losses_z)
+
+#channel_5_x = FiberChannel(0.2, 0.99 ,losses_x)
+
+receiver_5 = Receiver(transmittance=1)
+
+f_5 = 1.2
+
+#graph_proba(0,3,source_5, "Spiral resonator source statistic")
+
+key_rate_loss_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="test")
+
+
