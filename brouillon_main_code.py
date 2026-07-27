@@ -327,7 +327,7 @@ class Spiral_Resonator(Source):
 
     @g2.setter
     def g2(self, value: float) -> None:
-        if value <= 0:
+        if value < 0:
             raise ValueError(f"g2 must be non-negative, got {value}")
         self._g2 = float(value)
 
@@ -508,7 +508,7 @@ class FiberChannel:
 
     @loss_per_km.setter
     def loss_per_km(self, value: float) -> None:
-        if value <= 0:
+        if value < 0:
             raise ValueError(f"loss_per_km must be positive, got {value}")
         self._loss_per_km = value
 
@@ -519,7 +519,7 @@ class FiberChannel:
 
     @optical_component_losses.setter
     def optical_component_losses(self, value: np.ndarray) -> None:
-        if np.any(value <= 0):
+        if np.any(value < 0):
             raise ValueError(f"All optical_component_losses values must be positive (> 0), got minimum: {np.min(value)}")
         self._optical_component_losses = value
 
@@ -731,6 +731,16 @@ class New_BBM92(Protocol):
             self.distance_km2 = distance_km1
         else:
             self.distance_km2 = distance_km2
+"""
+## Functions
+
+    def transmittance_i_photon_state(detector, receiver, channel, distance,i):
+        return 1-(1-detector.efficiency*receiver.transmittance*channel.transmittance(distance)*(1+detector1.after_pulsing))**i
+
+    def yield_i_photon_state(transmittance_i_1, transmittance_i_2, detector1, detector2,i):
+        return  (1-(1-detector1.background_rate())*(1-transmittance_i_1))*(1-(1-detector2.background_rate())*(1-transmittance_i_2))
+
+"""
 
 ## Basis Z
     def transmittance_i_photon_state1_Z(self, i):
@@ -1205,5 +1215,4 @@ f_5 = 1.2
 #graph_proba(0,3,source_5, "Spiral resonator source statistic")
 
 key_rate_loss_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="test")
-
 
