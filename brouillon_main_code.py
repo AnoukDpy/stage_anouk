@@ -731,16 +731,6 @@ class New_BBM92(Protocol):
             self.distance_km2 = distance_km1
         else:
             self.distance_km2 = distance_km2
-"""
-## Functions
-
-    def transmittance_i_photon_state(detector, receiver, channel, distance,i):
-        return 1-(1-detector.efficiency*receiver.transmittance*channel.transmittance(distance)*(1+detector1.after_pulsing))**i
-
-    def yield_i_photon_state(transmittance_i_1, transmittance_i_2, detector1, detector2,i):
-        return  (1-(1-detector1.background_rate())*(1-transmittance_i_1))*(1-(1-detector2.background_rate())*(1-transmittance_i_2))
-
-"""
 
 ## Basis Z
     def transmittance_i_photon_state1_Z(self, i):
@@ -834,7 +824,7 @@ class New_BBM92(Protocol):
 
     def key_rate(self):
 
-        return (self.final_gain()/2)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rateX())+binary_shannon_entropy(self.overall_quantum_bit_error_rateZ())*self.correction_efficiency)
+        return (self.final_gain()/2)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rateX())-binary_shannon_entropy(self.overall_quantum_bit_error_rateZ())*self.correction_efficiency)
 
 
 
@@ -1108,13 +1098,34 @@ def key_rate_loss_bbm92_new(*, min, max, values_number, source: Source, detector
     y1_values = []
     for x in x_values:
         protocol = New_BBM92(source=source, detector1=detector1, detector2=detector2, FiberChannel1_x=FiberChannel1_x, FiberChannel2_x=FiberChannel2_x, FiberChannel1_z=FiberChannel1_z, FiberChannel2_z=FiberChannel2_z, receiver1=receiver1, receiver2=receiver2, correction_efficiency=correction_efficiency, distance_km1=x, distance_km2=0)
-        y1 = protocol.key_rate()
+        y1 = protocol.key_rate()/detector1.time_window
         y1_values.append(y1)
 
     plt.plot(horiz_axis, y1_values, color = 'red')
     plt.yscale('log')
     plt.xlabel("Loss in dB")
-    plt.ylabel("Key rate in bpp")
+    plt.ylabel("Key rate in bits/s")
+    plt.title(title)
+    plt.grid(True)
+    plt.show()
+
+def QBER_bbm92_new(*, min, max, values_number, source: Source, detector1: Detector, FiberChannel1_x: FiberChannel, receiver1: Receiver, correction_efficiency: float, title: str, detector2: Optional[Detector] = None, FiberChannel2_x: Optional[FiberChannel] = None, FiberChannel1_z: Optional[FiberChannel] = None, FiberChannel2_z: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None):
+    x_values = np.linspace(min, max, values_number)
+    horiz_axis = np.linspace(min*FiberChannel1_x.loss_per_km, max*FiberChannel1_x.loss_per_km, values_number)
+    y1_values = []
+    y2_values =[]
+    for x in x_values:
+        protocol = New_BBM92(source=source, detector1=detector1, detector2=detector2, FiberChannel1_x=FiberChannel1_x, FiberChannel2_x=FiberChannel2_x, FiberChannel1_z=FiberChannel1_z, FiberChannel2_z=FiberChannel2_z, receiver1=receiver1, receiver2=receiver2, correction_efficiency=correction_efficiency, distance_km1=x, distance_km2=0)
+        y1 = protocol.overall_quantum_bit_error_rateX()
+        y1_values.append(y1)
+        y2 = protocol.overall_quantum_bit_error_rateZ()
+        y2_values.append(y2)
+
+    plt.plot(horiz_axis, y1_values, color = 'red', label = 'QBER X')
+    plt.plot(horiz_axis, y2_values, color = 'blue', label = 'QBER Z')
+    plt.yscale('log')
+    plt.xlabel("Loss in dB")
+    plt.ylabel("QBER")
     plt.title(title)
     plt.grid(True)
     plt.show()
@@ -1190,29 +1201,47 @@ f_4 = 1.22
 
 
 
-source_5 = Spiral_Resonator(repetition_rate=0, esperance=5.11*10**(-5), g2=0.000001)
+source_5 = Spiral_Resonator(repetition_rate=0, esperance=5.11*10**(-3), g2=0)
 
-detector_5 = Threshold_detector(dark_count_rate=3500, efficiency=0.20, time_window=310*10**(-12), after_pulsing=0)
+detector_5 = Threshold_detector(dark_count_rate=350, efficiency=0.20, time_window=310*10**(-12), after_pulsing=0)
 
-"""
 losses_z = np.array([1.5,4,3])
 
 losses_x = np.array([1.5,4,3,3])
+
 """
+losses_z = np.array([0])
 
-losses_z = np.array([0.000001])
+losses_x = np.array([0])
 
-losses_x = np.array([0.000001])
+"""
 
 channel_5_z = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_losses = losses_z)
 
-#channel_5_x = FiberChannel(0.2, 0.99 ,losses_x)
+channel_5_x = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_losses = losses_x)
 
 receiver_5 = Receiver(transmittance=1)
 
-f_5 = 1.2
+f_5 = 1.22
+"""
+source_5 = Entangled_PDC_Source(0.053, 0)
+
+detector_5 = Threshold_detector(dark_count_rate=6.02, efficiency=14.5/100, time_window=10**(-6), after_pulsing=0)
+
+losses_z = np.array([0])
+
+losses_x = np.array([0])
+
+channel_5_z = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_losses = losses_z)
+"""
+
+
 
 #graph_proba(0,3,source_5, "Spiral resonator source statistic")
 
-key_rate_loss_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="test")
+#key_rate_loss_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_x,FiberChannel1_z=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="test")
+
+key_rate_loss_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="Key rate evolution with the loss in dB")
+
+#QBER_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_x, FiberChannel1_z=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="test")
 
