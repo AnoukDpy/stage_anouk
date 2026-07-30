@@ -5,6 +5,8 @@ from matplotlib import pyplot as plt
 import math
 from scipy.stats import poisson
 from typing import Optional
+from scipy.integrate import quad
+from typing import Callable
 
 ## Source
 
@@ -297,11 +299,12 @@ class Entangled_PDC_Source(Source):
 
 class Spiral_Resonator(Source):
 
-    def __init__(self,*,repetition_rate: float, esperance: float, g2: float):
+    def __init__(self,*,repetition_rate: float, esperance: float, g2_profile: Callable):
 
         self.repetition_rate = repetition_rate
         self.esperance = esperance
-        self.g2 = g2
+        self.g2_profile = g2_profile
+        self.g2 = g2(0)
 
     @property
     def esperance(self) -> float:
@@ -488,7 +491,7 @@ def find_visibility(qber = float, protocol: New_BBM92):
 class FiberChannel:
     """A fiber optic communication channel."""
 
-    def __init__(self,*, loss_per_km: float, visibility: float, optical_component_losses: np.ndarray):
+    def __init__(self,*, loss_per_km: float, visibility: float, optical_component_losses_x: np.ndarray, optical_component_losses_Z: Optional[np.ndarray]):
         """Initialize the fiber channel with the given parameters.
 
         Parameters
@@ -499,7 +502,11 @@ class FiberChannel:
         """
         self.loss_per_km = loss_per_km
         self.visibility = visibility
-        self.optical_component_losses = optical_component_losses
+        self.optical_component_losses_x = optical_component_losses_x
+        if optical_component_losses_z is None:
+            self.optical_component_losses_z = optical_component_losses_x
+        else:
+            self.optical_component_losses_z = optical_component_losses_z
 
     @property
     def loss_per_km(self) -> float:
@@ -523,8 +530,12 @@ class FiberChannel:
             raise ValueError(f"All optical_component_losses values must be positive (> 0), got minimum: {np.min(value)}")
         self._optical_component_losses = value
 
-    def components_transmittance(self):
-        loss = np.sum(self.optical_component_losses)
+    def components_transmittance_x(self):
+        loss = np.sum(self.optical_component_losses_x)
+        return 10**(-loss/10)
+
+    def components_transmittance_z(self):
+        loss = np.sum(self.optical_component_losses_z)
         return 10**(-loss/10)
 
     def compute_channel_losses(self, distance_km) -> float:
@@ -533,8 +544,11 @@ class FiberChannel:
             raise ValueError(f"distance_km must be positive, got {value}")
         return distance_km * self.loss_per_km
 
-    def transmittance(self, distance_km):
-        return 10**(-self.compute_channel_losses(distance_km)/10)*self.components_transmittance()
+    def transmittance_x(self, distance_km):
+        return 10**(-self.compute_channel_losses(distance_km)/10)*self.components_transmittance_x()
+
+    def transmittance_z(self, distance_km):
+        return 10**(-self.compute_channel_losses(distance_km)/10)*self.components_transmittance_z()
 
     def probability_hitting_wrong_detector(self):
         return (1-self.visibility)/2
@@ -689,7 +703,7 @@ class BBM92(Protocol):
 
 class New_BBM92(Protocol):
 
-    def __init__(self, *, source: Source, detector1: Detector, FiberChannel1_x: FiberChannel, receiver1: Receiver, correction_efficiency: float, distance_km1: float, detector2: Optional[Detector] = None, FiberChannel2_x: Optional[FiberChannel] = None, FiberChannel1_z: Optional[FiberChannel] = None, FiberChannel2_z: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None, distance_km2: Optional[float] = None):
+    def __init__(self, *, source: Source, detector1: Detector, FiberChannel1: FiberChannel, receiver1: Receiver, correction_efficiency: float, distance_km1: float, detector2: Optional[Detector] = None, FiberChannel2: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None, distance_km2: Optional[float] = None):
 
         self.source = source
         self.detector1 = detector1
@@ -699,22 +713,12 @@ class New_BBM92(Protocol):
         else:
             self.detector2 = detector2
 
-        self.FiberChannel1_x = FiberChannel1_x
+        self.FiberChannel1 = FiberChannel1
 
-        if FiberChannel2_x is None:
-            self.FiberChannel2_x = FiberChannel1_x
+        if FiberChannel2 is None:
+            self.FiberChannel2 = FiberChannel1
         else:
-            self.FiberChannel2_x = FiberChannel2_x
-
-        if FiberChannel1_z is None:
-            self.FiberChannel1_z = FiberChannel1_x
-        else:
-            self.FiberChannel1_z = FiberChannel1_z
-
-        if FiberChannel2_z is None:
-            self.FiberChannel2_z = FiberChannel1_x
-        else:
-            self.FiberChannel2_z = FiberChannel2_z
+            self.FiberChannel2 = FiberChannel2
 
         self.receiver1 = receiver1
 
@@ -825,6 +829,108 @@ class New_BBM92(Protocol):
     def key_rate(self):
 
         return (self.final_gain()/2)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rateX())-binary_shannon_entropy(self.overall_quantum_bit_error_rateZ())*self.correction_efficiency)
+
+## BBM92 with continuous-wave pumped entangled photon sources
+
+def BBM92_continuous_wave_pumped_source(Protocol):
+
+    def __init__(self, *, source: Source, detector1: Detector, FiberChannel1: FiberChannel, receiver1: Receiver, correction_efficiency: float, distance_km1: float, coincidence_time: float, detector2: Optional[Detector] = None, FiberChannel2: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None, distance_km2: Optional[float] = None):
+
+        self.source = source
+        self.detector1 = detector1
+
+        if detector2 is None:
+                    self.detector2 = detector1
+        else:
+            self.detector2 = detector2
+
+        self.FiberChannel1 = FiberChannel1
+
+        if FiberChannel2 is None:
+            self.FiberChannel2 = FiberChannel1
+        else:
+            self.FiberChannel2 = FiberChannel2
+
+        self.receiver1 = receiver1
+
+        if receiver2 is None:
+            self.receiver2 = receiver1
+        else:
+            self.receiver2 = receiver2
+
+        self.correction_efficiency = correction_efficiency
+
+        self.distance_km1 = distance_km1
+
+        if distance_km2 is None:
+            self.distance_km2 = distance_km1
+        else:
+            self.distance_km2 = distance_km2
+
+        self.coincidence_time = coincidence_time
+
+## Functions
+
+def no_x_event_i_time(x,i):
+
+    return (1-x)**i
+
+## Coincidence window efficiency
+
+    def coincidence_window_efficiency(self):
+
+        return quad(self.source.g2_profile, -self.coincidence_time, self.coincidence_time)
+
+## Overall detector error
+
+    def overall_detector_error(self):
+        return (self.FiberChannel1.probability_hitting_wrong_detector()+self.FiberChannel2.probability_hitting_wrong_detector())/2
+
+## Basis X
+
+    def heralding_efficiency_1_x(self):
+        return self.detector1.efficiency*self.receiver1.transmittance*self.FiberChannel1.transmittance_x(self.distance_km1)
+
+    def heralding_efficiency_2_x(self):
+        return self.detector2.efficiency*self.receiver2.transmittance*self.FiberChannel2.transmittance_x(self.distance_km2)
+
+    def true_coincidence_rate_i_n_x(self,i,n):
+        return heralding_efficiency_1_x()*heralding_efficiency_2_x(self)*no_x_event_i_time(heralding_efficiency_1_x(),i-1)*no_x_event_i_time(heralding_efficiency_2_x(),i-1)*no_x_event_i_time(heralding_efficiency_2_x()/2,n-i)*no_x_event_i_time(heralding_efficiency_1_x()/2,n-i)*no_x_event_i_time(self.detector1.background_rate()/2,1)*no_x_event_i_time(self.detector2.background_rate()/2,1)
+
+    def true_coincidence_rate_x_i(self,i):
+        sum = 0
+        for n in range(1,i+1):
+            sum = sum + self.true_coincidence_rate_i_n_x(i,n)
+        return sum
+
+    def true_coincidence_rate_x(self):
+        sum = 0
+        for i in range(1,50):
+            sum = sum+self.true_coincidence_rate_x_i(i)*self.source.probability_sending_i_state(i)
+        return sum
+
+    def miss_coincidence_x_i(self,i):
+        return no_x_event_i_time(heralding_efficiency_1_x(),i)+no_x_event_i_time(heralding_efficiency_2_x(),i)-no_x_event_i_time(heralding_efficiency_1_x(),i)*no_x_event_i_time(heralding_efficiency_2_x(),i)-no_x_event_i_time(heralding_efficiency_1_x(),i)*(1-no_x_event_i_time(heralding_efficiency_2_x(),i))*self.detector1.background_rate()-no_x_event_i_time(heralding_efficiency_2_x(),i)*(1-no_x_event_i_time(heralding_efficiency_1_x(),i))*self.detector2.background_rate()-no_x_event_i_time(heralding_efficiency_1_x(),i)*no_x_event_i_time(heralding_efficiency_2_x(),i)*self.detector1.background_rate()*self.detector2.background_rate()
+
+    def miss_coincidence_x(self):
+        sum = 0
+        for i in range(1,50):
+            sum = sum + self.miss_coincidence_x_i(i)*self.source.probability_sending_i_state(i)
+        return sum
+
+    def accidental_coincidence_rate_x(self):
+
+        return 1-self.true_coincidence_rate_x()-miss_coincidence_x()-self.source.probability_sending_i_state(0)*(1-self.detector1.background_rate()*self.detector2.background_rate())
+
+    def measured_coincidence_rate_x(self):
+
+        return self.coincidence_window_efficiency()*self.true_coincidence_rate_x()+self.accidental_coincidence_rate()
+
+    def coincidence_error_rate_x(self):
+
+        return self.coincidence_window_efficiency()*self.true_coincidence_rate_x()*self.overall_detector_error()+self.accidental_coincidence_rate_x()/2
+
+
 
 
 
