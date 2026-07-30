@@ -7,6 +7,7 @@ from scipy.stats import poisson
 from typing import Optional
 from scipy.integrate import quad
 from typing import Callable
+from scipy.special import voigt_profile
 
 ## Source
 
@@ -304,7 +305,7 @@ class Spiral_Resonator(Source):
         self.repetition_rate = repetition_rate
         self.esperance = esperance
         self.g2_profile = g2_profile
-        self.g2 = g2(0)
+        self.g2 = g2_profile(0)
 
     @property
     def esperance(self) -> float:
@@ -466,6 +467,7 @@ def binary_shannon_entropy(x):
         return 0
     return -x*math.log2(x)-(1-x)*math.log2(1-x)
 
+
 """
 def find_visibility(qber = float, protocol: New_BBM92):
 
@@ -491,7 +493,7 @@ def find_visibility(qber = float, protocol: New_BBM92):
 class FiberChannel:
     """A fiber optic communication channel."""
 
-    def __init__(self,*, loss_per_km: float, visibility: float, optical_component_losses_x: np.ndarray, optical_component_losses_Z: Optional[np.ndarray]):
+    def __init__(self,*, loss_per_km: float, visibility: float, optical_component_losses_x: np.ndarray, optical_component_losses_z: Optional[np.ndarray]):
         """Initialize the fiber channel with the given parameters.
 
         Parameters
@@ -831,8 +833,13 @@ class New_BBM92(Protocol):
         return (self.final_gain()/2)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rateX())-binary_shannon_entropy(self.overall_quantum_bit_error_rateZ())*self.correction_efficiency)
 
 ## BBM92 with continuous-wave pumped entangled photon sources
+## Functions
 
-def BBM92_continuous_wave_pumped_source(Protocol):
+def no_x_event_i_time(x,i):
+
+    return (1-x)**i
+## Protocol
+class BBM92_continuous_wave_pumped_source(Protocol):
 
     def __init__(self, *, source: Source, detector1: Detector, FiberChannel1: FiberChannel, receiver1: Receiver, correction_efficiency: float, distance_km1: float, coincidence_time: float, detector2: Optional[Detector] = None, FiberChannel2: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None, distance_km2: Optional[float] = None):
 
@@ -869,17 +876,12 @@ def BBM92_continuous_wave_pumped_source(Protocol):
 
         self.coincidence_time = coincidence_time
 
-## Functions
-
-def no_x_event_i_time(x,i):
-
-    return (1-x)**i
 
 ## Coincidence window efficiency
 
     def coincidence_window_efficiency(self):
 
-        return quad(self.source.g2_profile, -self.coincidence_time, self.coincidence_time)
+        return quad(self.source.g2_profile, -self.coincidence_time, self.coincidence_time)[0]
 
 ## Overall detector error
 
@@ -895,12 +897,12 @@ def no_x_event_i_time(x,i):
         return self.detector2.efficiency*self.receiver2.transmittance*self.FiberChannel2.transmittance_x(self.distance_km2)
 
     def true_coincidence_rate_i_n_x(self,i,n):
-        return heralding_efficiency_1_x()*heralding_efficiency_2_x(self)*no_x_event_i_time(heralding_efficiency_1_x(),i-1)*no_x_event_i_time(heralding_efficiency_2_x(),i-1)*no_x_event_i_time(heralding_efficiency_2_x()/2,n-i)*no_x_event_i_time(heralding_efficiency_1_x()/2,n-i)*no_x_event_i_time(self.detector1.background_rate()/2,1)*no_x_event_i_time(self.detector2.background_rate()/2,1)
+        return self.heralding_efficiency_1_x()*self.heralding_efficiency_2_x()*no_x_event_i_time(self.heralding_efficiency_1_x(),i-1)*no_x_event_i_time(self.heralding_efficiency_2_x(),i-1)*no_x_event_i_time(self.heralding_efficiency_2_x()/2,n-i)*no_x_event_i_time(self.heralding_efficiency_1_x()/2,n-i)*no_x_event_i_time(self.detector1.background_rate()/2,1)*no_x_event_i_time(self.detector2.background_rate()/2,1)
 
     def true_coincidence_rate_x_i(self,i):
         sum = 0
         for n in range(1,i+1):
-            sum = sum + self.true_coincidence_rate_i_n_x(i,n)
+            sum = sum + self.true_coincidence_rate_i_n_x(n,i)
         return sum
 
     def true_coincidence_rate_x(self):
@@ -910,7 +912,7 @@ def no_x_event_i_time(x,i):
         return sum
 
     def miss_coincidence_x_i(self,i):
-        return no_x_event_i_time(heralding_efficiency_1_x(),i)+no_x_event_i_time(heralding_efficiency_2_x(),i)-no_x_event_i_time(heralding_efficiency_1_x(),i)*no_x_event_i_time(heralding_efficiency_2_x(),i)-no_x_event_i_time(heralding_efficiency_1_x(),i)*(1-no_x_event_i_time(heralding_efficiency_2_x(),i))*self.detector1.background_rate()-no_x_event_i_time(heralding_efficiency_2_x(),i)*(1-no_x_event_i_time(heralding_efficiency_1_x(),i))*self.detector2.background_rate()-no_x_event_i_time(heralding_efficiency_1_x(),i)*no_x_event_i_time(heralding_efficiency_2_x(),i)*self.detector1.background_rate()*self.detector2.background_rate()
+        return no_x_event_i_time(self.heralding_efficiency_1_x(),i)+no_x_event_i_time(self.heralding_efficiency_2_x(),i)-no_x_event_i_time(self.heralding_efficiency_1_x(),i)*no_x_event_i_time(self.heralding_efficiency_2_x(),i)-no_x_event_i_time(self.heralding_efficiency_1_x(),i)*(1-no_x_event_i_time(self.heralding_efficiency_2_x(),i))*self.detector1.background_rate()-no_x_event_i_time(self.heralding_efficiency_2_x(),i)*(1-no_x_event_i_time(self.heralding_efficiency_1_x(),i))*self.detector2.background_rate()-no_x_event_i_time(self.heralding_efficiency_1_x(),i)*no_x_event_i_time(self.heralding_efficiency_2_x(),i)*self.detector1.background_rate()*self.detector2.background_rate()
 
     def miss_coincidence_x(self):
         sum = 0
@@ -920,17 +922,76 @@ def no_x_event_i_time(x,i):
 
     def accidental_coincidence_rate_x(self):
 
-        return 1-self.true_coincidence_rate_x()-miss_coincidence_x()-self.source.probability_sending_i_state(0)*(1-self.detector1.background_rate()*self.detector2.background_rate())
+        return 1-self.true_coincidence_rate_x()-self.miss_coincidence_x()-self.source.probability_sending_i_state(0)*(1-self.detector1.background_rate()*self.detector2.background_rate())
 
     def measured_coincidence_rate_x(self):
 
-        return self.coincidence_window_efficiency()*self.true_coincidence_rate_x()+self.accidental_coincidence_rate()
+        return self.coincidence_window_efficiency()*self.true_coincidence_rate_x()+self.accidental_coincidence_rate_x()
 
     def coincidence_error_rate_x(self):
 
         return self.coincidence_window_efficiency()*self.true_coincidence_rate_x()*self.overall_detector_error()+self.accidental_coincidence_rate_x()/2
 
+    def qber_x(self):
 
+        return self.coincidence_error_rate_x()/self.measured_coincidence_rate_x()
+
+## Basis Z
+
+    def heralding_efficiency_1_z(self):
+        return self.detector1.efficiency*self.receiver1.transmittance*self.FiberChannel1.transmittance_z(self.distance_km1)
+
+    def heralding_efficiency_2_z(self):
+        return self.detector2.efficiency*self.receiver2.transmittance*self.FiberChannel2.transmittance_z(self.distance_km2)
+
+    def true_coincidence_rate_i_n_z(self,i,n):
+        return self.heralding_efficiency_1_z()*self.heralding_efficiency_2_z()*no_x_event_i_time(self.heralding_efficiency_1_z(),i-1)*no_x_event_i_time(self.heralding_efficiency_2_z(),i-1)*no_x_event_i_time(self.heralding_efficiency_2_z()/2,n-i)*no_x_event_i_time(self.heralding_efficiency_1_z()/2,n-i)*no_x_event_i_time(self.detector1.background_rate()/2,1)*no_x_event_i_time(self.detector2.background_rate()/2,1)
+
+    def true_coincidence_rate_z_i(self,i):
+        sum = 0
+        for n in range(1,i+1):
+            sum = sum + self.true_coincidence_rate_i_n_z(n,i)
+        return sum
+
+    def true_coincidence_rate_z(self):
+        sum = 0
+        for i in range(1,50):
+            sum = sum+self.true_coincidence_rate_z_i(i)*self.source.probability_sending_i_state(i)
+        return sum
+
+    def miss_coincidence_z_i(self,i):
+        return no_x_event_i_time(self.heralding_efficiency_1_z(),i)+no_x_event_i_time(self.heralding_efficiency_2_z(),i)-no_x_event_i_time(self.heralding_efficiency_1_z(),i)*no_x_event_i_time(self.heralding_efficiency_2_z(),i)-no_x_event_i_time(self.heralding_efficiency_1_z(),i)*(1-no_x_event_i_time(self.heralding_efficiency_2_z(),i))*self.detector1.background_rate()-no_x_event_i_time(self.heralding_efficiency_2_z(),i)*(1-no_x_event_i_time(self.heralding_efficiency_1_z(),i))*self.detector2.background_rate()-no_x_event_i_time(self.heralding_efficiency_1_z(),i)*no_x_event_i_time(self.heralding_efficiency_2_z(),i)*self.detector1.background_rate()*self.detector2.background_rate()
+
+    def miss_coincidence_z(self):
+        sum = 0
+        for i in range(1,50):
+            sum = sum + self.miss_coincidence_z_i(i)*self.source.probability_sending_i_state(i)
+        return sum
+
+    def accidental_coincidence_rate_z(self):
+
+        return 1-self.true_coincidence_rate_z()-self.miss_coincidence_z()-self.source.probability_sending_i_state(0)*(1-self.detector1.background_rate()*self.detector2.background_rate())
+
+    def measured_coincidence_rate_z(self):
+
+        return self.coincidence_window_efficiency()*self.true_coincidence_rate_z()+self.accidental_coincidence_rate_z()
+
+    def coincidence_error_rate_z(self):
+
+        return self.coincidence_window_efficiency()*self.true_coincidence_rate_z()*self.overall_detector_error()+self.accidental_coincidence_rate_z()/2
+
+    def qber_z(self):
+
+        return self.coincidence_error_rate_z()/self.measured_coincidence_rate_z()
+
+## Key rate
+
+    def overall_measured_coincidence(self):
+
+        return (self.measured_coincidence_rate_z()+self.measured_coincidence_rate_x())/2
+
+    def key_rate(self):
+        return (self.overall_measured_coincidence()/2)*(1-binary_shannon_entropy(self.qber_x())-binary_shannon_entropy(self.qber_z())*self.correction_efficiency)
 
 
 
@@ -1236,6 +1297,25 @@ def QBER_bbm92_new(*, min, max, values_number, source: Source, detector1: Detect
     plt.grid(True)
     plt.show()
 
+def key_rate_loss_bbm92_continuous(*, min, max, values_number, source: Source, detector1: Detector, FiberChannel1: FiberChannel, receiver1: Receiver, correction_efficiency: float,title:str, coincidence_time: float, detector2: Optional[Detector] = None, FiberChannel2: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None, distance_km2: Optional[float] = None):
+
+    x_values = np.linspace(min, max, values_number)
+    horiz_axis = np.linspace(min*FiberChannel1.loss_per_km, max*FiberChannel1.loss_per_km, values_number)
+    y1_values = []
+    for x in x_values:
+        protocol = BBM92_continuous_wave_pumped_source(source=source, detector1=detector1, detector2=detector2, FiberChannel1=FiberChannel1, FiberChannel2=FiberChannel2, receiver1=receiver1, receiver2=receiver2, correction_efficiency=correction_efficiency, distance_km1=x, distance_km2=0, coincidence_time = coincidence_time )
+        y1 = protocol.key_rate()/protocol.coincidence_time
+        y1_values.append(y1)
+
+    plt.plot(horiz_axis, y1_values, color = 'red')
+   # plt.yscale('log')
+    plt.xlabel("Loss in dB")
+    plt.ylabel("Key rate in bits/s")
+    plt.title(title)
+    plt.grid(True)
+    plt.show()
+
+
 """
 # Test 1:
 
@@ -1306,22 +1386,22 @@ f_4 = 1.22
 # Test 5:
 
 
-
-source_5 = Spiral_Resonator(repetition_rate=0, esperance=5.11*10**(-3), g2=0)
+"""
+source_5 = Spiral_Resonator(repetition_rate=0, esperance=5.11*10**(-3), g2=7:7/100)
 
 detector_5 = Threshold_detector(dark_count_rate=350, efficiency=0.20, time_window=310*10**(-12), after_pulsing=0)
 
 losses_z = np.array([1.5,4,3])
 
 losses_x = np.array([1.5,4,3,3])
-
+"""
 """
 losses_z = np.array([0])
 
 losses_x = np.array([0])
 
 """
-
+"""
 channel_5_z = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_losses = losses_z)
 
 channel_5_x = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_losses = losses_x)
@@ -1329,6 +1409,7 @@ channel_5_x = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_l
 receiver_5 = Receiver(transmittance=1)
 
 f_5 = 1.22
+"""
 """
 source_5 = Entangled_PDC_Source(0.053, 0)
 
@@ -1347,7 +1428,49 @@ channel_5_z = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_l
 
 #key_rate_loss_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_x,FiberChannel1_z=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="test")
 
-key_rate_loss_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="Key rate evolution with the loss in dB")
+#key_rate_loss_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="Key rate evolution with the loss in dB")
 
 #QBER_bbm92_new(min=0, max=275, values_number=300, source=source_5, detector1=detector_5, FiberChannel1_x=channel_5_x, FiberChannel1_z=channel_5_z, receiver1=receiver_5, correction_efficiency=f_5, title="test")
+
+
+## Testing BBM92 continuous
+
+def g2_source_6(x):
+    return voigt_profile(x, 123.2, 99.3)
+
+source_6 = Spiral_Resonator(repetition_rate=0, esperance=5.11*10**(-3), g2_profile= g2_source_6)
+
+detector_6 = Threshold_detector(dark_count_rate=350, efficiency=0.20, time_window=310*10**(-12), after_pulsing=0)
+"""
+losses_z = np.array([1.5,4,3])
+
+losses_x = np.array([1.5,4,3,3])
+"""
+losses_z = np.array([0])
+
+losses_x = np.array([0])
+
+channel_6 = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_losses_x = losses_x, optical_component_losses_z = losses_z)
+
+receiver_6 = Receiver(transmittance=1)
+
+f_6 = 1.2
+
+key_rate_loss_bbm92_continuous(min=0, max=275, values_number=300, source=source_6, detector1=detector_6, FiberChannel1=channel_6, receiver1=receiver_6, correction_efficiency=f_6, title="Key rate evolution with the loss in dB",coincidence_time =310*10**(-12))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
