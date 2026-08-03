@@ -317,8 +317,8 @@ class Spiral_Resonator(Source):
 
     @esperance.setter
     def esperance(self, value: float) -> None:
-        if value <= 0 or value>1 :
-            raise ValueError(f"esperance must be non-negative and less than 1, got {value}")
+        if value <= 0 :
+            raise ValueError(f"esperance must be non-negative, got {value}")
         self._esperance = float(value)
 
     @property
@@ -909,7 +909,7 @@ class BBM92_continuous_wave_pumped_source(Protocol):
         sum = 0
         for i in range(1,50):
             sum = sum+self.true_coincidence_rate_x_i(i)*self.source.probability_sending_i_state(i)
-        return sum
+        return sum/self.coincidence_time
 
     def miss_coincidence_x_i(self,i):
         return no_x_event_i_time(self.heralding_efficiency_1_x(),i)+no_x_event_i_time(self.heralding_efficiency_2_x(),i)-no_x_event_i_time(self.heralding_efficiency_1_x(),i)*no_x_event_i_time(self.heralding_efficiency_2_x(),i)-no_x_event_i_time(self.heralding_efficiency_1_x(),i)*(1-no_x_event_i_time(self.heralding_efficiency_2_x(),i))*self.detector1.background_rate()-no_x_event_i_time(self.heralding_efficiency_2_x(),i)*(1-no_x_event_i_time(self.heralding_efficiency_1_x(),i))*self.detector2.background_rate()-no_x_event_i_time(self.heralding_efficiency_1_x(),i)*no_x_event_i_time(self.heralding_efficiency_2_x(),i)*self.detector1.background_rate()*self.detector2.background_rate()
@@ -922,11 +922,11 @@ class BBM92_continuous_wave_pumped_source(Protocol):
 
     def accidental_coincidence_rate_x(self):
 
-        return 1-self.true_coincidence_rate_x()-self.miss_coincidence_x()-self.source.probability_sending_i_state(0)*(1-self.detector1.background_rate()*self.detector2.background_rate())
+        return (1-self.true_coincidence_rate_x()*self.coincidence_time-self.miss_coincidence_x()-self.source.probability_sending_i_state(0)*(1-self.detector1.background_rate()*self.detector2.background_rate()))/self.coincidence_time
 
     def measured_coincidence_rate_x(self):
 
-        return self.coincidence_window_efficiency()*self.true_coincidence_rate_x()+self.accidental_coincidence_rate_x()
+        return (self.coincidence_window_efficiency()*self.true_coincidence_rate_x()*self.coincidence_time+self.accidental_coincidence_rate_x())
 
     def coincidence_error_rate_x(self):
 
@@ -957,7 +957,7 @@ class BBM92_continuous_wave_pumped_source(Protocol):
         sum = 0
         for i in range(1,50):
             sum = sum+self.true_coincidence_rate_z_i(i)*self.source.probability_sending_i_state(i)
-        return sum
+        return sum/self.coincidence_time
 
     def miss_coincidence_z_i(self,i):
         return no_x_event_i_time(self.heralding_efficiency_1_z(),i)+no_x_event_i_time(self.heralding_efficiency_2_z(),i)-no_x_event_i_time(self.heralding_efficiency_1_z(),i)*no_x_event_i_time(self.heralding_efficiency_2_z(),i)-no_x_event_i_time(self.heralding_efficiency_1_z(),i)*(1-no_x_event_i_time(self.heralding_efficiency_2_z(),i))*self.detector1.background_rate()-no_x_event_i_time(self.heralding_efficiency_2_z(),i)*(1-no_x_event_i_time(self.heralding_efficiency_1_z(),i))*self.detector2.background_rate()-no_x_event_i_time(self.heralding_efficiency_1_z(),i)*no_x_event_i_time(self.heralding_efficiency_2_z(),i)*self.detector1.background_rate()*self.detector2.background_rate()
@@ -970,7 +970,7 @@ class BBM92_continuous_wave_pumped_source(Protocol):
 
     def accidental_coincidence_rate_z(self):
 
-        return 1-self.true_coincidence_rate_z()-self.miss_coincidence_z()-self.source.probability_sending_i_state(0)*(1-self.detector1.background_rate()*self.detector2.background_rate())
+        return (1-self.true_coincidence_rate_z()*self.coincidence_time-self.miss_coincidence_z()-self.source.probability_sending_i_state(0)*(1-self.detector1.background_rate()*self.detector2.background_rate()))/self.coincidence_time
 
     def measured_coincidence_rate_z(self):
 
@@ -1304,18 +1304,36 @@ def key_rate_loss_bbm92_continuous(*, min, max, values_number, source: Source, d
     y1_values = []
     for x in x_values:
         protocol = BBM92_continuous_wave_pumped_source(source=source, detector1=detector1, detector2=detector2, FiberChannel1=FiberChannel1, FiberChannel2=FiberChannel2, receiver1=receiver1, receiver2=receiver2, correction_efficiency=correction_efficiency, distance_km1=x, distance_km2=0, coincidence_time = coincidence_time )
-        y1 = protocol.key_rate()/protocol.coincidence_time
+        y1 = protocol.key_rate()
         y1_values.append(y1)
 
     plt.plot(horiz_axis, y1_values, color = 'red')
-   # plt.yscale('log')
+ #   plt.yscale('log')
     plt.xlabel("Loss in dB")
     plt.ylabel("Key rate in bits/s")
     plt.title(title)
     plt.grid(True)
     plt.show()
 
+"""
+def key_rate_loss_bbm92_continuous(*, min, max, values_number, source: Source, detector1: Detector, FiberChannel1: FiberChannel, receiver1: Receiver, correction_efficiency: float,title:str, coincidence_time: float, detector2: Optional[Detector] = None, FiberChannel2: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None, distance_km2: Optional[float] = None):
 
+    x_values = np.linspace(min, max, values_number)
+    horiz_axis = np.linspace(min*FiberChannel1.loss_per_km, max*FiberChannel1.loss_per_km, values_number)
+    y1_values = []
+    for x in x_values:
+        protocol = BBM92_continuous_wave_pumped_source(source=source, detector1=detector1, detector2=detector2, FiberChannel1=FiberChannel1, FiberChannel2=FiberChannel2, receiver1=receiver1, receiver2=receiver2, correction_efficiency=correction_efficiency, distance_km1=x, distance_km2=0, coincidence_time = coincidence_time )
+        y1 = protocol.measured_coincidence_rate_z()
+        y1_values.append(y1)
+
+    plt.plot(horiz_axis, y1_values, color = 'red')
+    #plt.yscale('log')
+    plt.xlabel("Loss in dB")
+    plt.ylabel("Key rate in bits/s")
+    plt.title(title)
+    plt.grid(True)
+    plt.show()
+"""
 """
 # Test 1:
 
@@ -1436,9 +1454,9 @@ channel_5_z = FiberChannel(loss_per_km=0.2, visibility=0.99, optical_component_l
 ## Testing BBM92 continuous
 
 def g2_source_6(x):
-    return voigt_profile(x, 123.2, 99.3)
+    return (voigt_profile(x, 123.2, 99.3)/voigt_profile(x, 123.2, 99.3))*7.7/100
 
-source_6 = Spiral_Resonator(repetition_rate=0, esperance=5.11*10**(-3), g2_profile= g2_source_6)
+source_6 = Spiral_Resonator(repetition_rate=0, esperance=5.11*10**(-5), g2_profile= g2_source_6)
 
 detector_6 = Threshold_detector(dark_count_rate=350, efficiency=0.20, time_window=310*10**(-12), after_pulsing=0)
 """
@@ -1456,21 +1474,8 @@ receiver_6 = Receiver(transmittance=1)
 
 f_6 = 1.2
 
+#graph_proba(0,3,source_6, "Spiral resonator source statistic")
+
+print(source_6.g2)
+
 key_rate_loss_bbm92_continuous(min=0, max=275, values_number=300, source=source_6, detector1=detector_6, FiberChannel1=channel_6, receiver1=receiver_6, correction_efficiency=f_6, title="Key rate evolution with the loss in dB",coincidence_time =310*10**(-12))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
