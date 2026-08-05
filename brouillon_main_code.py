@@ -1402,7 +1402,7 @@ def key_rate_loss_bbm92_continuous(*, min, max, values_number, source: Source, d
             ch2 = channel_2
 
         protocol = BBM92_continuous_wave_pumped_source(source=source, detector1=detector1, detector2=detector2, channel_1=channel_1, channel_2=ch2, receiver1=receiver1, receiver2=receiver2, correction_efficiency=correction_efficiency, coincidence_time=coincidence_time)
-        y1 = protocol.key_rate()/coincidence_time
+        y1 = protocol.key_rate()
         y1_values.append(y1)
         horiz_axis.append(-10 * np.log10((protocol.heralding_efficiency_1_x() + protocol.heralding_efficiency_1_z()) / 2 * (protocol.heralding_efficiency_2_x() + protocol.heralding_efficiency_2_z()) / 2))
 
@@ -1501,7 +1501,7 @@ def g2_source_6(x):
 
 
 
-source_6 = Continuous_Wave_Pumped_Source(brightness=0.22, g2_profile= g2_source_6, optical_losses = 4.5)
+source_6 = Continuous_Wave_Pumped_Source(brightness=1646*(10**5), g2_profile= g2_source_6, optical_losses = 4.5)
 
 detector_6 = Threshold_detector(dark_count_rate=350, efficiency=0.76, time_window=310*10**(-12), after_pulsing=0)
 
@@ -1519,7 +1519,7 @@ f_6 = 1.2
 
 key_rate_loss_bbm92_continuous(min=0, max=275, values_number=300, source=source_6, detector1=detector_6, channel_1=channel_6, channel_2 = channel_6, receiver1=receiver_6, correction_efficiency=f_6, title="Key rate evolution with the loss in dB",coincidence_time =310*10**(-12))
 
-#key_rate_brightness_continuous(min = 0.00000000001,max= 0.3, distance=100, g2_profile = g2_source_6, values_number=300, detector1=detector_6, channel_1=channel_6, receiver1=receiver_6, correction_efficiency=f_6, title="Key rate evolution with the loss in dB",coincidence_time =310*10**(-12))
+#key_rate_brightness_continuous(min = 0.00000000001,max= 10**9, distance=100, values_number=300, detector1=detector_6, channel_1=channel_6, receiver1=receiver_6, correction_efficiency=f_6, title="Key rate evolution with the loss in dB",coincidence_time =310*10**(-12), source = source_6)
 
 
 ## Testing BBM92 continuous, Gaussian profile
@@ -1530,7 +1530,7 @@ def g2_source_7(t):
     return (2.0 / t_delta) * np.sqrt(np.log(2.0) / np.pi)*np.exp(-4.0 * np.log(2.0) * (t ** 2) / (t_delta**2))
 
 
-source_7 = Continuous_Wave_Pumped_Source(brightness=0.1, g2_profile = g2_source_7)
+source_7 = Continuous_Wave_Pumped_Source(brightness=0.05*(10**9), g2_profile = g2_source_7)
 
 detector_7 = Threshold_detector(dark_count_rate=250, efficiency=0.76, time_window=46*10**(-12), after_pulsing=0)
 
@@ -1540,9 +1540,9 @@ receiver_7 = Receiver(transmittance=1)
 
 f_7 = 1.2
 
-#key_rate_loss_bbm92_continuous(min=0, max=400, values_number=400, source=source_7, detector1=detector_7, channel_1=channel_7, receiver1=receiver_7, correction_efficiency=f_7, title="Key rate evolution with the loss in dB",coincidence_time =46*10**(-12))
+key_rate_loss_bbm92_continuous(min=0, max=400, values_number=400, source=source_7, detector1=detector_7, channel_1=channel_7, receiver1=receiver_7, correction_efficiency=f_7, title="Key rate evolution with the loss in dB",coincidence_time =46*10**(-12))
 
-#key_rate_brightness_continuous(min = 0.00000000001,max= 0.3, distance=200, values_number=300, detector1=detector_7, channel_1=channel_7, receiver1=receiver_7, correction_efficiency=f_7, title="Key rate evolution with the loss in dB",coincidence_time =46*10**(-12), source = source_7)
+#key_rate_brightness_continuous(min = 0.00000000001,max= 10**(10), distance=200, values_number=300, detector1=detector_7, channel_1=channel_7, receiver1=receiver_7, correction_efficiency=f_7, title="Key rate evolution with the loss in dB",coincidence_time =46*10**(-12), source = source_7)
 
 
 
