@@ -19,8 +19,11 @@ def binary_shannon_entropy(x):
         return 0
     return -x*math.log2(x)-(1-x)*math.log2(1-x)
 
+def no_x_event_i_time(x,i):
 
+    return (1-x)**i
 
+## Protocoles
 class Protocol(ABC):
 
     def __init__(self, source: Source, detector: Detector, channel: FiberChannel, receiver: Receiver, correction_efficiency: float):
@@ -236,12 +239,7 @@ class Pulsed_BBM92(Protocol):
 
 
 ## BBM92 with continuous-wave pumped entangled photon sources
-## Functions
 
-def no_x_event_i_time(x,i):
-
-    return (1-x)**i
-## Protocol
 class BBM92_continuous_wave_pumped_source(Protocol):
 
     def __init__(self, *, source: Source, detector1: Detector, channel_1: FiberChannel, receiver1: Receiver, correction_efficiency: float, coincidence_time: float, detector2: Optional[Detector] = None, channel_2: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None):
