@@ -21,233 +21,367 @@ def binary_shannon_entropy(x):
 
 
 
-## Channel
+class Protocol(ABC):
 
-class Channel:
-
-    def __init__(self, loss_coef: float, visibility: float):
-
-        self.loss_coef = loss_coef
-        self.visibility = visibility
-
-    def transmittance(self, distance):
-
-        return 10**(-self.loss_coef*distance/10)
-
-    def probability_hitting_wrong_detector(self):
-
-        return (1-self.visibility)/2
-
-
-
-## Protocol
-
-class Protocol:
-
-    def __init__(self, source: Source, detector: Detector, channel: Channel, receiver: Receiver, correction_efficiency: float, distance: float):
+    def __init__(self, source: Source, detector: Detector, channel: FiberChannel, receiver: Receiver, correction_efficiency: float):
 
         self.source = source
         self.detector = detector
         self.channel = channel
         self.receiver = receiver
         self.correction_efficiency = correction_efficiency
-        self.distance = distance
 
-    def transmittance_i_photon_state(self, i):
 
-        return 1-(1-self.detector.efficiency*self.receiver.transmittance*self.channel.transmittance(self.distance))**i
+class BB84(Protocol):
 
-    def yield_i_photon_state(self, i):
-        #probability for Bob to have a detection assuming that Alice sent an i-photon state
-        return  self.detector.background_rate() + self.transmittance_i_photon_state(i)*(1+self.detector.after_pulsing))
+    def __init__(self,*, source: Source, detector: Detector, channel: FiberChannel, receiver: Receiver, correction_efficiency: float):
 
-    def gain_i_photon_state(self, i):
-        #probability for Alice to send an i-photon state and for Bob to have a detection
-        return self.yield_i_photon_state(i)*self.source.probability_sending_i_photons(i)
+        self.source = source
+        self.detector = detector
+        self.channel = channel
+        self.receiver = receiver
+        self.correction_efficiency = correction_efficiency
 
-    def overall_gain(self):
+## X basis
+
+    def transmittance_i_photon_state_x(self, i):
+
+        return 1-(1-self.detector.efficiency*self.receiver.x_basis_transmittance()*self.channel.transmittance()*self.source.optical_efficiency())**i
+
+    def yield_i_photon_state_x(self, i):
+        return  self.detector.background_rate() + self.transmittance_i_photon_state_x(i)*(1+self.detector.after_pulsing)
+
+    def gain_i_photon_state_x(self, i):
+        return self.yield_i_photon_state_x(i)*self.source.probability_sending_i_state(i)
+
+    def overall_gain_x(self):
         gain = 0
         for i in range(0,50):
-            gain += self.gain_i_photon_state(i)
+            gain += self.gain_i_photon_state_x(i)
         return gain
 
+    def quantum_bit_error_rate_x(self,i):
+        return (1/2 * self.detector.background_rate() + (self.channel.detection_error+1/2 *self.detector.after_pulsing ) * self.transmittance_i_photon_state_x(i))/self.yield_i_photon_state_x(i)
 
-    def quantum_bit_error_rate(self,i):
-        return (1/2 * self.detector.background_rate() + (self.channel.probability_hitting_wrong_detector()+1/2 *self.detector.after_pulsing ) * self.transmittance_i_photon_state(i))/self.yield_i_photon_state(i)
-
-    def overall_quantum_bit_error_rate(self):
+    def overall_quantum_bit_error_rate_x(self):
         qber = 0
         for i in range(0,50):
-            qber += (self.quantum_bit_error_rate(i)*self.yield_i_photon_state(i)*self.source.probability_sending_i_photons(i))
-        qber = qber/self.overall_gain()
+            qber += (self.quantum_bit_error_rate_x(i)*self.yield_i_photon_state_x(i)*self.source.probability_sending_i_state(i))
+        qber = qber/self.overall_gain_x()
         return qber
 
+## Z basis
+
+    def transmittance_i_photon_state_z(self, i):
+
+        return 1-(1-self.detector.efficiency*self.receiver.z_basis_transmittance()*self.channel.transmittance()*self.source.optical_efficiency())**i
+
+    def yield_i_photon_state_z(self, i):
+        return  self.detector.background_rate() + self.transmittance_i_photon_state_z(i)*(1+self.detector.after_pulsing)
+
+    def gain_i_photon_state_z(self, i):
+        return self.yield_i_photon_state_z(i)*self.source.probability_sending_i_state(i)
+
+    def overall_gain_z(self):
+        gain = 0
+        for i in range(0,50):
+            gain += self.gain_i_photon_state_z(i)
+        return gain
+
+    def quantum_bit_error_rate_z(self,i):
+        return (1/2 * self.detector.background_rate() + (self.channel.detection_error+1/2 *self.detector.after_pulsing ) * self.transmittance_i_photon_state_z(i))/self.yield_i_photon_state_z(i)
+
+    def overall_quantum_bit_error_rate_z(self):
+        qber = 0
+        for i in range(0,50):
+            qber += (self.quantum_bit_error_rate_z(i)*self.yield_i_photon_state_z(i)*self.source.probability_sending_i_state(i))
+        qber = qber/self.overall_gain_z()
+        return qber
+
+## Key rates
+    def gain(self):
+        return (self.overall_gain_x()+self.overall_gain_z())/2
+
     def key_rate_decoy_state_inf_key(self):
-        return self.source.probability_sending_i_photons(0)*self.detector.background_rate() + self.source.probability_sending_i_photons(1)*self.yield_i_photon_state(1)*(1-binary_shannon_entropy(self.quantum_bit_error_rate(1)))-self.overall_gain()*self.correction_efficiency*binary_shannon_entropy(self.overall_quantum_bit_error_rate())
+        return self.source.probability_sending_i_state(0)*self.detector.background_rate() + self.source.probability_sending_i_state(1)*(self.yield_i_photon_state_x(1)+self.yield_i_photon_state_z(1))/2*(1-binary_shannon_entropy(self.quantum_bit_error_rate_x(1)))-self.overall_gain_z()*self.correction_efficiency*binary_shannon_entropy(self.overall_quantum_bit_error_rate_z())
 
     def key_rate_no_decoy_state_inf_key(self):
 
-        delta = (1-self.source.probability_sending_i_photons(0)-self.source.probability_sending_i_photons(1))/self.overall_gain()
+        delta = (1-self.source.probability_sending_i_state(0)-self.source.probability_sending_i_state(1))/self.gain()
 
-        return self.overall_gain()*((1-delta)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rate()/(1-delta)))-self.correction_efficiency*binary_shannon_entropy(self.overall_quantum_bit_error_rate()))
-
-## Graphs
-
-def key_rate_distance(min, max, values_number, source: Source, detector: Detector, channel: Channel, correction_efficiency: float):
-    x_values = np.linspace(min, max, values_number)
-    y1_values = []
-    y2_values = []
-    for x in x_values:
-        protocol = Protocol(source, detector, channel, correction_efficiency, x)
-        y1 = protocol.key_rate_decoy_state_inf_key()
-        y1_values.append(y1)
-
-        y2 = protocol.key_rate_no_decoy_state_inf_key()
-        y2_values.append(y2)
-
-    plt.plot(x_values, y1_values, color = 'blue', label = "With active decoy state")
-    plt.plot(x_values, y2_values, color = 'red', label = "Without decoy state")
-   # plt.yscale('log')
-    plt.xlabel("Distance in km")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the distance")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+        return self.gain()*((1-delta)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rate_x()/(1-delta)))-self.correction_efficiency*binary_shannon_entropy(self.overall_quantum_bit_error_rate_z()))
 
 
-def key_rate_distance_decoy_state(min, max, values_number, intensities, detector: Detector, channel: Channel, correction_efficiency: float):
-    for i in intensities:
-        source = Attenuated_Laser(i)
-        x_values = np.linspace(min, max, values_number)
-        y1_values = []
-        for x in x_values:
-            protocol = Protocol(source, detector, channel, correction_efficiency, x)
-            y1 = protocol.key_rate_decoy_state_inf_key()
-            y1_values.append(y1)
-        plt.plot(x_values, y1_values, label = f"Source's intensity = {i}")
-    plt.yscale('log')
-    plt.xlabel("Distance in km")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the distance")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+class Pulsed_BBM92(Protocol):
 
-def key_rate_distance_mhps(min, max, values_number, intensity, hs_units, detector: Detector, channel: Channel, correction_efficiency: float):
-    for u in hs_units:
-        source = Multiplexed_Heralded_Photon_Source(intensity, u )
-        x_values = np.linspace(min, max, values_number)
-        y1_values = []
-        for x in x_values:
-            protocol = Protocol(source, detector, channel, correction_efficiency, x)
-            y1 = protocol.key_rate_decoy_state_inf_key()
-            y1_values.append(y1)
-        plt.plot(x_values, y1_values, label = f"Source's intensity = {i}")
-    plt.yscale('log')
-    plt.xlabel("Distance in km")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the distance")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    def __init__(self, *, source: Source, detector1: Detector, channel_1: FiberChannel, receiver1: Receiver, correction_efficiency: float, detector2: Optional[Detector] = None, channel_2: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None):
 
+        self.source = source
+        self.detector1 = detector1
 
-def key_rate_intensity_attenuated_laser(min, max, values_number, detector: Detector, channel: Channel, correction_efficiency: float, distance: float):
-    x_values = np.linspace(min, max, values_number)
-    y1_values = []
-    y2_values = []
-    for x in x_values:
-        source = Attenuated_Laser(x)
-        protocol = Protocol(source, detector, channel, correction_efficiency, distance)
-        y1 = protocol.key_rate_decoy_state_inf_key()
-        y1_values.append(y1)
+        if detector2 is None:
+                    self.detector2 = detector1
+        else:
+            self.detector2 = detector2
 
-        y2 = protocol.key_rate_no_decoy_state_inf_key()
-        y2_values.append(y2)
+        self.channel_1 = channel_1
 
-    plt.plot(x_values, y1_values, color = 'blue', label = "With active decoy state")
-    plt.plot(x_values, y2_values, color = 'red', label = "Without decoy state")
-    plt.yscale('log')
-    plt.xlabel("Source intensity")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the source's intensity")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+        if channel_2 is None:
+            self.channel_2 = channel_1
+        else:
+            self.channel_2 = channel_2
+
+        self.receiver1 = receiver1
+
+        if receiver2 is None:
+            self.receiver2 = receiver1
+        else:
+            self.receiver2 = receiver2
+
+        self.correction_efficiency = correction_efficiency
+
+## Basis Z
+    def transmittance_i_photon_state1_Z(self, i):
+
+        return 1-(1-self.detector1.efficiency*self.receiver1.z_basis_transmittance()*self.channel_1.transmittance()*self.source.optical_efficiency()*(1+self.detector1.after_pulsing))**i
+
+    def transmittance_i_photon_state2_Z(self, i):
+
+        return 1-(1-self.detector2.efficiency*self.receiver2.z_basis_transmittance()*self.channel_2.transmittance()*self.source.optical_efficiency()*(1+self.detector2.after_pulsing))**i
+
+    def yield_i_photon_stateZ(self, i):
+
+        return  (1-(1-self.detector1.background_rate())*(1-self.transmittance_i_photon_state1_Z(i)))*(1-(1-self.detector2.background_rate())*(1-self.transmittance_i_photon_state2_Z(i)))
+
+    def gain_i_photon_stateZ(self, i):
+
+        return self.yield_i_photon_stateZ(i)*self.source.probability_sending_i_state(i)
+
+    def overall_gainZ(self):
+        gain = 0
+        for i in range(0,50):
+            gain += self.gain_i_photon_stateZ(i)
+        return gain
 
 
-def key_rate_intensity_mhps(min, max, values_number, sources_num: float, detector: Detector, channel: Channel, correction_efficiency: float, distance: float):
-    x_values = np.linspace(min, max, values_number)
-    y_values = []
-    for x in x_values:
-        source = Multiplexed_Heralded_Photon_Source(x, sources_num)
-        protocol = Protocol(source, detector, channel, correction_efficiency, distance)
-        y = protocol.key_rate_decoy_state_inf_key()
-        y_values.append(y)
+    def entanglement_errorZ(self,n,m):
 
-    plt.plot(x_values, y_values)
-    #plt.yscale('log')
-    plt.xlabel("Source intensity")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the source's intensity")
-    plt.grid(True)
-    plt.show()
-
-def key_rate_hs_units_mhps(min, max, intensity: float, detector: Detector, channel: Channel, correction_efficiency: float, distance: float):
-    x_values = np.arange(min,max+1)
-    y_values = []
-    for x in x_values:
-        source = Multiplexed_Heralded_Photon_Source(intensity, x)
-        protocol = Protocol(source, detector, channel, correction_efficiency, distance)
-        y = protocol.key_rate_decoy_state_inf_key()
-        y_values.append(y)
-
-    plt.plot(x_values, y_values, 'x')
-    #plt.yscale('log')
-    plt.xlabel("HS units")
-    plt.ylabel("Key rate")
-    plt.title("Evolution of the key rate with the HS units")
-    plt.grid(True)
-    plt.show()
+        return 1/2-((1/2-((self.channel_1.detection_error+self.channel_2.detection_error+(self.detector1.after_pulsing+self.detector2.after_pulsing)/4)/(1+(self.detector1.after_pulsing+self.detector2.after_pulsing)/2)))/self.yield_i_photon_stateZ(n))*(-self.transmittance_i_photon_state1_Z(n-m)+self.transmittance_i_photon_state1_Z(m))*(-self.transmittance_i_photon_state2_Z(n-m)+self.transmittance_i_photon_state2_Z(m))
 
 
-## Calls
+    def quantum_bit_error_rateZ(self,i):
+        qber = 0
+        for n in range(0,i+1):
+            qber = qber + self.entanglement_errorZ(i,n)
+        return qber/(1+i)
 
-#source1 = Attenuated_Laser(0.48)
 
-source1 = Attenuated_Laser(0.01)
+    def overall_quantum_bit_error_rateZ(self):
+        qber = 0
+        for i in range(0,50):
+            qber += (self.quantum_bit_error_rateZ(i)*self.yield_i_photon_stateZ(i)*self.source.probability_sending_i_state(i))
+        qber = qber/self.overall_gainZ()
+        return max(0,qber)
 
-detector1 = Threshold_detector(0.17,1/10,10**(-5),5/10) #Y_0 = 1.7*10**(-6)
+## Basis X
+    def transmittance_i_photon_state1_X(self, i):
 
-channel1 = Channel(0.21,0.934) #Ma's values
+        return 1-(1-self.detector1.efficiency*self.receiver1.x_basis_transmittance()*self.channel_1.transmittance()*self.source.optical_efficiency()*(1+self.detector1.after_pulsing))**i
 
-f =1.22
+    def transmittance_i_photon_state2_X(self, i):
 
-#key_rate_distance(0,160,300,source1,detector1,channel1,f)
+        return 1-(1-self.detector2.efficiency*self.receiver2.x_basis_transmittance()*self.channel_2.transmittance()*self.source.optical_efficiency()*(1+self.detector2.after_pulsing))**i
 
-intensities = [0.1, 0.2, 0.5, 0.7, 1]
+    def yield_i_photon_stateX(self, i):
 
-hs_units = [2,4,8,32]
+        return  (1-(1-self.detector1.background_rate())*(1-self.transmittance_i_photon_state1_X(i)))*(1-(1-self.detector2.background_rate())*(1-self.transmittance_i_photon_state2_X(i)))
 
-key_rate_distance_mhps(0,160,300,0.48,hs_units,detector1,channel1,f)
+    def gain_i_photon_stateX(self, i):
 
-#key_rate_distance_decoy_state(0,160,300,intensities,detector1,channel1,f)
+        return self.yield_i_photon_stateX(i)*self.source.probability_sending_i_state(i)
 
-source2 = Multiplexed_Heralded_Photon_Source(0.48,32)
+    def overall_gainX(self):
+        gain = 0
+        for i in range(0,50):
+            gain += self.gain_i_photon_stateX(i)
+        return gain
 
-#source2 = Multiplexed_Heralded_Photon_Source(0.1,32)
 
-#key_rate_distance(0,160,300,source2,detector1,channel1,f)
+    def entanglement_errorX(self,n,m):
 
-distance1 = 40
+        return 1/2-((1/2-((self.channel_1.detection_error+self.channel_2.detection_error+(self.detector1.after_pulsing+self.detector2.after_pulsing)/4)/(1+(self.detector1.after_pulsing+self.detector2.after_pulsing)/2)))/self.yield_i_photon_stateX(n))*(-self.transmittance_i_photon_state1_X(n-m)+self.transmittance_i_photon_state1_X(m))*(-self.transmittance_i_photon_state2_X(n-m)+self.transmittance_i_photon_state2_X(m))
 
-distance2 = 10
 
-#key_rate_intensity_attenuated_laser(0,1.2,200,detector1,channel1,f,distance1)
+    def quantum_bit_error_rateX(self,i):
+        qber = 0
+        for n in range(0,i+1):
+            qber = qber + self.entanglement_errorX(i,n)
+        return qber/(1+i)
 
-#key_rate_intensity_attenuated_laser(0,0.1,200,detector1,channel1,f,distance2)
 
-#key_rate_intensity_mhps(0,1.2,200,32,detector1,channel1,f,distance1)
+    def overall_quantum_bit_error_rateX(self):
+        qber = 0
+        for i in range(0,50):
+            qber += (self.quantum_bit_error_rateX(i)*self.yield_i_photon_stateX(i)*self.source.probability_sending_i_state(i))
+        qber = qber/self.overall_gainX()
+        return max(0,qber)
 
-#key_rate_hs_units_mhps(1,30,0.62,detector1,channel1,f,distance1)
+## Final gain and key rate
+    def final_gain(self):
+        return (self.overall_gainX()+self.overall_gainZ())/2
+
+    def key_rate(self):
+
+        return (self.final_gain()/2)*(1-binary_shannon_entropy(self.overall_quantum_bit_error_rateX())-binary_shannon_entropy(self.overall_quantum_bit_error_rateZ())*self.correction_efficiency)
+
+
+## BBM92 with continuous-wave pumped entangled photon sources
+## Functions
+
+def no_x_event_i_time(x,i):
+
+    return (1-x)**i
+## Protocol
+class BBM92_continuous_wave_pumped_source(Protocol):
+
+    def __init__(self, *, source: Source, detector1: Detector, channel_1: FiberChannel, receiver1: Receiver, correction_efficiency: float, coincidence_time: float, detector2: Optional[Detector] = None, channel_2: Optional[FiberChannel] = None, receiver2: Optional[Receiver] = None):
+
+        self.source = source
+        self.detector1 = detector1
+
+        if detector2 is None:
+                    self.detector2 = detector1
+        else:
+            self.detector2 = detector2
+
+        self.channel_1 = channel_1
+
+        if channel_2 is None:
+            self.channel_2 = channel_1
+        else:
+            self.channel_2 = channel_2
+
+        self.receiver1 = receiver1
+
+        if receiver2 is None:
+            self.receiver2 = receiver1
+        else:
+            self.receiver2 = receiver2
+
+        self.correction_efficiency = correction_efficiency
+
+        self.coincidence_time = coincidence_time
+
+
+
+## Overall detector error
+
+    def overall_detector_error(self):
+        return (self.channel_1.detection_error+self.channel_2.detection_error)/2
+
+## Basis X
+
+    def heralding_efficiency_1_x(self):
+        return self.detector1.efficiency*self.receiver1.x_basis_transmittance()*self.channel_1.transmittance()*self.source.optical_efficiency()
+
+    def heralding_efficiency_2_x(self):
+        return self.detector2.efficiency*self.receiver2.x_basis_transmittance()*self.channel_2.transmittance()*self.source.optical_efficiency()
+
+    def true_coincidence_rate_i_n_x(self,i,n):
+        return self.heralding_efficiency_1_x()*self.heralding_efficiency_2_x()*no_x_event_i_time(self.heralding_efficiency_1_x(),i-1)*no_x_event_i_time(self.heralding_efficiency_2_x(),i-1)*no_x_event_i_time(self.heralding_efficiency_2_x()/2,n-i)*no_x_event_i_time(self.heralding_efficiency_1_x()/2,n-i)*no_x_event_i_time(self.detector1.background_rate()/2,1)*no_x_event_i_time(self.detector2.background_rate()/2,1)
+
+    def true_coincidence_rate_x_i(self,i):
+        sum = 0
+        for n in range(1,i+1):
+            sum = sum + self.true_coincidence_rate_i_n_x(n,i)
+        return sum
+
+    def true_coincidence_rate_x(self):
+        sum = 0
+        for i in range(1,5):
+            sum = sum+self.true_coincidence_rate_x_i(i)*self.source.probability_sending_i_state(i, self.coincidence_time)
+        return sum/self.coincidence_time
+
+    def miss_coincidence_x_i(self,i):
+        return no_x_event_i_time(self.heralding_efficiency_1_x(),i)+no_x_event_i_time(self.heralding_efficiency_2_x(),i)-no_x_event_i_time(self.heralding_efficiency_1_x(),i)*no_x_event_i_time(self.heralding_efficiency_2_x(),i)-no_x_event_i_time(self.heralding_efficiency_1_x(),i)*(1-no_x_event_i_time(self.heralding_efficiency_2_x(),i))*self.detector1.background_rate()-no_x_event_i_time(self.heralding_efficiency_2_x(),i)*(1-no_x_event_i_time(self.heralding_efficiency_1_x(),i))*self.detector2.background_rate()-no_x_event_i_time(self.heralding_efficiency_1_x(),i)*no_x_event_i_time(self.heralding_efficiency_2_x(),i)*self.detector1.background_rate()*self.detector2.background_rate()
+
+    def miss_coincidence_x(self):
+        sum = 0
+        for i in range(1,5):
+            sum = sum + self.miss_coincidence_x_i(i)*self.source.probability_sending_i_state(i, self.coincidence_time)
+        return sum
+
+    def accidental_coincidence_rate_x(self):
+
+        return (1-self.true_coincidence_rate_x()*self.coincidence_time-self.miss_coincidence_x()-self.source.probability_sending_i_state(0, self.coincidence_time) *(1-self.detector1.background_rate()*self.detector2.background_rate()))/self.coincidence_time
+
+    def measured_coincidence_rate_x(self):
+
+        return (self.source.coincidence_window_efficiency(self.coincidence_time)*self.true_coincidence_rate_x()+self.accidental_coincidence_rate_x())
+
+    def coincidence_error_rate_x(self):
+
+        return self.source.coincidence_window_efficiency(self.coincidence_time)*self.true_coincidence_rate_x()*self.overall_detector_error()+self.accidental_coincidence_rate_x()/2
+
+    def qber_x(self):
+
+        return self.coincidence_error_rate_x()/self.measured_coincidence_rate_x()
+
+## Basis Z
+
+    def heralding_efficiency_1_z(self):
+        return self.detector1.efficiency*self.receiver1.z_basis_transmittance()*self.channel_1.transmittance()*self.source.optical_efficiency()
+
+    def heralding_efficiency_2_z(self):
+        return self.detector2.efficiency*self.receiver2.z_basis_transmittance()*self.channel_2.transmittance()*self.source.optical_efficiency()
+
+    def true_coincidence_rate_i_n_z(self,i,n):
+        return self.heralding_efficiency_1_z()*self.heralding_efficiency_2_z()*no_x_event_i_time(self.heralding_efficiency_1_z(),i-1)*no_x_event_i_time(self.heralding_efficiency_2_z(),i-1)*no_x_event_i_time(self.heralding_efficiency_2_z()/2,n-i)*no_x_event_i_time(self.heralding_efficiency_1_z()/2,n-i)*no_x_event_i_time(self.detector1.background_rate()/2,1)*no_x_event_i_time(self.detector2.background_rate()/2,1)
+
+    def true_coincidence_rate_z_i(self,i):
+        sum = 0
+        for n in range(1,i+1):
+            sum = sum + self.true_coincidence_rate_i_n_z(n,i)
+        return sum
+
+    def true_coincidence_rate_z(self):
+        sum = 0
+        for i in range(1,5):
+            sum = sum+self.true_coincidence_rate_z_i(i)*self.source.probability_sending_i_state(i, self.coincidence_time)
+        return sum/self.coincidence_time
+
+    def miss_coincidence_z_i(self,i):
+        return no_x_event_i_time(self.heralding_efficiency_1_z(),i)+no_x_event_i_time(self.heralding_efficiency_2_z(),i)-no_x_event_i_time(self.heralding_efficiency_1_z(),i)*no_x_event_i_time(self.heralding_efficiency_2_z(),i)-no_x_event_i_time(self.heralding_efficiency_1_z(),i)*(1-no_x_event_i_time(self.heralding_efficiency_2_z(),i))*self.detector1.background_rate()-no_x_event_i_time(self.heralding_efficiency_2_z(),i)*(1-no_x_event_i_time(self.heralding_efficiency_1_z(),i))*self.detector2.background_rate()-no_x_event_i_time(self.heralding_efficiency_1_z(),i)*no_x_event_i_time(self.heralding_efficiency_2_z(),i)*self.detector1.background_rate()*self.detector2.background_rate()
+
+    def miss_coincidence_z(self):
+        sum = 0
+        for i in range(1,5):
+            sum = sum + self.miss_coincidence_z_i(i)*self.source.probability_sending_i_state(i, self.coincidence_time)
+        return sum
+
+    def accidental_coincidence_rate_z(self):
+
+        return (1-self.true_coincidence_rate_z()*self.coincidence_time-self.miss_coincidence_z()-self.source.probability_sending_i_state(0, self.coincidence_time) *(1-self.detector1.background_rate()*self.detector2.background_rate()))/self.coincidence_time
+
+    def measured_coincidence_rate_z(self):
+
+        return self.source.coincidence_window_efficiency(self.coincidence_time)*self.true_coincidence_rate_z()+self.accidental_coincidence_rate_z()
+
+    def coincidence_error_rate_z(self):
+
+        return self.source.coincidence_window_efficiency(self.coincidence_time)*self.true_coincidence_rate_z()*self.overall_detector_error()+self.accidental_coincidence_rate_z()/2
+
+    def qber_z(self):
+
+        return self.coincidence_error_rate_z()/self.measured_coincidence_rate_z()
+
+## Key rate
+
+    def overall_measured_coincidence(self):
+
+        return (self.measured_coincidence_rate_z()+self.measured_coincidence_rate_x())/2
+
+    def key_rate(self):
+        return (self.overall_measured_coincidence()/2)*(1-binary_shannon_entropy(self.qber_x())-self.correction_efficiency*binary_shannon_entropy(self.qber_z()))
+
+
