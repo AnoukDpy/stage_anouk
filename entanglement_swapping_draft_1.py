@@ -82,6 +82,101 @@ class Entanglement_swapping:
 
         exponent = 1j*np.tanh(source.multi_pair_production_rate)*(creation_a_h*creation_b_h+creation_a_v*creation_b_v)
 
+        return ((1/np.cosh(source.multi_pair_production_rate)**2)*exponent.expm())*vac
+
+    def beam_splitter_operator(self):
+
+        N = self.dimension
+
+        anihilation_b_h = qt.tensor(qt.destroy(N), qt.qeye(N), qt.qeye(N), qt.qeye(N)
+        anihilation_b_v = qt.tensor(qt.qeye(N), qt.destroy(N), qt.qeye(N), qt.qeye(N))
+        anihilation_c_h = qt.tensor(qt.qeye(N), qt.qeye(N), qt.destroy(N), qt.qeye(N))
+        anihilation_c_v = qt.tensor(qt.qeye(N), qt.qeye(N), qt.qeye(N), qt.destroy(N))
+
+        generator = self.beam_splitter_angle*((anihilation_b_h.dag()*anihilation_c_h - anihilation_c_h.dag()*anihilation_b_h)+(anihilation_b_v.dag()*anihilation_c_v - anihilation_c_v.dag()*anihilation_b_v))
+
+        return qt.tensor(qt.qeye(N**2),generator.expm(),qt.qeye(N**2))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        else:
+            self.channel_2 = channel_2
+
+        if channel_3 is None:
+            self.channel_3 = channel_1
+
+        else:
+            self.channel_3 = channel_3
+
+        if channel_4 is None:
+            self.channel_4 = channel_1
+
+        else:
+            self.channel_4 = channel_4
+
+        if beam_splitter_angle is None:
+            self.beam_splitter_angle = np.pi/4
+
+        else:
+            self.beam_splitter_angle = beam_splitter_angle
+
+
+        ## Quantum definitions
+
+    def entangled_photons_state(self, i):
+
+        if i == 1:
+            source = self.source_1
+
+        elif i == 2:
+            source = self.source_2
+        else:
+            raise ValueError(f"i must be 1 or 2, got {value}")
+
+        N = self.dimension
+
+        creation_a_h = qt.tensor(qt.create(N), qt.qeye(N), qt.qeye(N), qt.qeye(N)
+        creation_a_v = qt.tensor(qt.qeye(N), qt.create(N), qt.qeye(N), qt.qeye(N))
+        creation_b_h = qt.tensor(qt.qeye(N), qt.qeye(N), qt.create(N), qt.qeye(N))
+        creation_b_v = qt.tensor(qt.qeye(N), qt.qeye(N), qt.qeye(N), qt.create(N))
+
+        identity = qt.qeye(N**4)
+
+        vac = qt.tensor(qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0))
+
+        exponent = 1j*np.tanh(source.multi_pair_production_rate)*(creation_a_h*creation_b_h+creation_a_v*creation_b_v)
+
         if i == 1:
             return qt.tensor((1/np.cosh(source.multi_pair_production_rate)**2)*exponent.expm(),identity)
 
