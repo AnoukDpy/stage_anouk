@@ -13,7 +13,7 @@ from scipy.special import voigt_profile
 
 class Entanglement_swapping:
 
-    def __init__(self,*, dimension: int, source_1: Source, channel_1: Channel, detector_1: Detector, detector_2: Optionnal[Detector] = None, source_2: Optionnal[Source] = None, channel_2: Optional[Channel] = None, channel_3: Optional[Channel] = None, channel_4: Optional[Channel] = None):
+    def __init__(self,*, dimension: int, source_1: Source, channel_1: Channel, detector_1: Detector, detector_2: Optionnal[Detector] = None, source_2: Optionnal[Source] = None, channel_2: Optional[Channel] = None, channel_3: Optional[Channel] = None, channel_4: Optional[Channel] = None, beam_splitter_angle: Optionnal[float] = None):
 
         self.dimension = dimension
         self.source_1 = source_1
@@ -50,6 +50,13 @@ class Entanglement_swapping:
         else:
             self.channel_4 = channel_4
 
+        if beam_splitter_angle is None:
+            self.beam_splitter_angle = np.pi/4
+
+        else:
+            self.beam_splitter_angle = beam_splitter_angle
+
+
         ## Quantum definitions
 
     def entangled_photons_state(self, i):
@@ -69,11 +76,34 @@ class Entanglement_swapping:
         creation_b_h = qt.tensor(qt.qeye(N), qt.qeye(N), qt.create(N), qt.qeye(N))
         creation_b_v = qt.tensor(qt.qeye(N), qt.qeye(N), qt.qeye(N), qt.create(N))
 
+        identity = qt.qeye(N**4)
+
         vac = qt.tensor(qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0))
 
         exponent = 1j*np.tanh(source.multi_pair_production_rate)*(creation_a_h*creation_b_h+creation_a_v*creation_b_v)
 
-        return (1/np.cosh(source.multi_pair_production_rate)**2)*exponent.expm()
+        if i == 1:
+            return qt.tensor((1/np.cosh(source.multi_pair_production_rate)**2)*exponent.expm(),identity)
+
+        else:
+            return qt.tensor(identity, (1/np.cosh(source.multi_pair_production_rate)**2)*exponent.expm())
+
+    def beam_splitter_operator(self):
+
+        N = self.dimension
+
+        anihilation_b_h = qt.tensor(qt.destroy(N), qt.qeye(N), qt.qeye(N), qt.qeye(N)
+        anihilation_b_v = qt.tensor(qt.qeye(N), qt.destroy(N), qt.qeye(N), qt.qeye(N))
+        anihilation_c_h = qt.tensor(qt.qeye(N), qt.qeye(N), qt.destroy(N), qt.qeye(N))
+        anihilation_c_v = qt.tensor(qt.qeye(N), qt.qeye(N), qt.qeye(N), qt.destroy(N))
+
+        generator = self.beam_splitter_angle*((anihilation_b_h.dag()*anihilation_c_h - anihilation_c_h.dag()*anihilation_b_h)+(anihilation_b_v.dag()*anihilation_c_v - anihilation_c_v.dag()*anihilation_b_v))
+
+        return qt.tensor(qt.qeye(N**2),generator.expm(),qt.qeye(N**2))
+
+
+
+
 
 
 
