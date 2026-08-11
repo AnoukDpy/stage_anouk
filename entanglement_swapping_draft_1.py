@@ -1230,7 +1230,11 @@ class Entanglement_swapping:
 
         exponent = 1j*np.tanh(source.multipair_production_rate)*(creation_a_h*creation_b_h+creation_a_v*creation_b_v)
 
-        matrix = exponent.expm()
+        matrix = qt.tensor(qt.qeye(N), qt.qeye(N), qt.qeye(N), qt.qeye(N))
+
+        for n in range(1,N+1):
+
+            matrix = matrix + (exponent**n)/math.factorial(n)
 
         matrix.dims = [[N, N, N, N], [N, N, N, N]]
 
@@ -1329,7 +1333,7 @@ class Entanglement_swapping:
 
             self.memo_qrst_proba[key] = probability_qrst_detection
 
-        return (conditionnal_detection_probability(no_background_rate_2, efficiency_2_x, q, i) * conditionnal_detection_probability(no_background_rate_2, efficiency_2_z, r, j) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_x, s, k) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_z, t, l))/probability_qrst_detection
+        return (conditionnal_detection_probability(no_background_rate_2, efficiency_2_x, q, i) * conditionnal_detection_probability(no_background_rate_2, efficiency_2_z, r, j) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_x, s, k) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_z, t, l)*self.heralding_probability(i, j, k, l))/probability_qrst_detection
 
     def mixed_state_density_matrix(self, q, r, s, t):
 
@@ -1361,17 +1365,10 @@ class Entanglement_swapping:
 
         return generator_a.expm()*generator_d.expm()
 
-    def last_detectors_entrance_probability(self, n, m, o, p, q, r, s, t):
-        N = self.dimension
-
-        ket_nmop = qt.tensor(qt.fock(N,n), qt.fock(N,m), qt.fock(N,o), qt.fock(N,p))
-        bra_nmop = ket_nmop.dag()
-
-        return bra_nmop*self.polarizers_action*self.mixed_state_density_matrix(q, r, s, t)*self.polarizers_action.dag()*ket_nmop
-
     def outer_detection_probability_given_inner_results(self, u, v, w, x, q, r, s, t):
-
         N = self.dimension
+
+        polarizer_density = self.polarizers_action*self.mixed_state_density_matrix(q, r, s, t)*self.polarizers_action.dag()
 
         no_background_rate_1 = 1-self.detector_1.background_rate()
 
@@ -1385,11 +1382,25 @@ class Entanglement_swapping:
 
         efficiency_4_z = self.detector_4.efficiency*self.receiver_4.z_basis_transmittance()*self.channel_4.transmittance()*self.source_2.optical_efficiency()
 
-        return sum(conditionnal_detection_probability(no_background_rate_1, efficiency_1_x, u, n) * conditionnal_detection_probability(no_background_rate_1, efficiency_1_z, v, m) * conditionnal_detection_probability(no_background_rate_4, efficiency_4_x, w, o) * conditionnal_detection_probability(no_background_rate_4, efficiency_4_z, x, p) * self.last_detectors_entrance_probability(n, m, o, p, q, r, s, t) for n in range(N) for m in range(N) for o in range(N) for p in range(N))
+        sum = 0
+
+        for n in range(N):
+            for m in range(N):
+                for o in range(N):
+                    for p in range(N):
+
+                        ket_nmop = qt.tensor(qt.fock(N,n), qt.fock(N,m), qt.fock(N,o), qt.fock(N,p))
+                        bra_nmop = ket_nmop.dag()
+
+                        sum = sum + (conditionnal_detection_probability(no_background_rate_1, efficiency_1_x, u, n) * conditionnal_detection_probability(no_background_rate_1, efficiency_1_z, v, m) * conditionnal_detection_probability(no_background_rate_4, efficiency_4_x, w, o) * conditionnal_detection_probability(no_background_rate_4, efficiency_4_z, x, p) * bra_nmop*polarizer_density*ket_nmop)
+
+        return sum
 
     def max_outer_detection_probability_given_inner_results(self, q, r, s, t):
 
-        combinations = list(product([0, 1], repeat=4))
+        N = self.dimension
+
+        combinations = list(product(range(N), repeat=4))
 
         possible_probabilities = [abs(self.outer_detection_probability_given_inner_results(u, v, w, x, q, r, s, t)) for u, v, w, x in combinations]
 
@@ -1397,7 +1408,9 @@ class Entanglement_swapping:
 
     def min_outer_detection_probability_given_inner_results(self, q, r, s, t):
 
-        combinations = list(product([0, 1], repeat=4))
+        N = self.dimension
+
+        combinations = list(product(range(N), repeat=4))
 
         possible_probabilities = [abs(self.outer_detection_probability_given_inner_results(u, v, w, x, q, r, s, t)) for u, v, w, x in combinations]
 
@@ -1739,7 +1752,7 @@ def visibility_multipair_rate(*, q, r, s, t, min, max, values_number, dimension:
     for x in x_values:
 
         source.multipair_production_rate = x
-        entanglement_swapping = Entanglement_swapping(dimension = dimension, source_1 = source, channel_1 = channel_1, detector_1 = detector_1, receiver_1 = receiver_1, polarizer_angle_1 = polarizer_angle_1, receiver_2 = receiver_2, receiver_3 = receiver_3, receiver_4 = receiver_4, detector_2 = detector_2, detector_3 = detector_3, detector_4 = detector_4, channel_2 = channel_2, channel_3 = channel_3, channel_4 = channel_4, beam_splitter_angle = beam_splitter_angle, polarizer_angle_2 = polarizer_angle_2)
+        entanglement_swapping = Entanglement_swapping(dimension = dimension, source_1 = source, source_2 = source, channel_1 = channel_1, detector_1 = detector_1, receiver_1 = receiver_1, polarizer_angle_1 = polarizer_angle_1, receiver_2 = receiver_2, receiver_3 = receiver_3, receiver_4 = receiver_4, detector_2 = detector_2, detector_3 = detector_3, detector_4 = detector_4, channel_2 = channel_2, channel_3 = channel_3, channel_4 = channel_4, beam_splitter_angle = beam_splitter_angle, polarizer_angle_2 = polarizer_angle_2)
 
         visibility = entanglement_swapping.visibility(q, r, s, t)
 
@@ -1766,7 +1779,7 @@ channel_7 = FiberChannel(loss_per_km=0.2, distance_km=0.2, detection_error=0.01)
 
 receiver_7 = Receiver(transmittance=1)
 
-visibility_multipair_rate(q=0, r=1, s=1, t=0, min=0, max=1, values_number=200, dimension=2, source=source, channel_1=channel_7, detector_1=detector_7, receiver_1=receiver_7, polarizer_angle_1=np.pi/4, polarizer_angle_2=0)
+visibility_multipair_rate(q=0, r=1, s=1, t=0, min=0, max=1, values_number=50, dimension=3, source=source, channel_1=channel_7, detector_1=detector_7, receiver_1=receiver_7, polarizer_angle_1=np.pi/2)
 
 # Test 1:
 
