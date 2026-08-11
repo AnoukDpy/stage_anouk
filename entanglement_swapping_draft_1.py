@@ -1186,6 +1186,24 @@ class Entanglement_swapping:
         else:
             self.polarizer_angle_2 = polarizer_angle_2
 
+        self.beam_splitter_operator = self.beam_splitter_operator()
+
+        self.entangled_photons_state_1 = self.entangled_photons_state(1)
+
+        self.entangled_photons_state_2 = self.entangled_photons_state(2)
+
+        self.polarizers_action = self.polarizers_action()
+
+        self.beam_splitter_outing = self.beam_splitter_operator*qt.tensor(self.entangled_photons_state_1, self.entangled_photons_state_2)
+
+        self.memo_heralding_probability = {}
+
+        self.memo_b_c_bell_measurement = {}
+
+        self.memo_qrst_proba = {}
+
+        self.memo_density_matrix = {}
+
 
         ## Quantum definitions
 
@@ -1218,8 +1236,6 @@ class Entanglement_swapping:
 
         return ((1/np.cosh(source.multipair_production_rate)**2)*matrix)*vac
 
-
-
     def beam_splitter_operator(self):
 
         N = self.dimension
@@ -1233,11 +1249,18 @@ class Entanglement_swapping:
 
         return qt.tensor(qt.qeye(N), qt.qeye(N),generator.expm(),qt.qeye(N), qt.qeye(N))
 
-    def beam_splitter_outing(self):
+    def beam_splitter_efficiency(self):
 
-        return self.beam_splitter_operator()*qt.tensor(self.entangled_photons_state(1), self.entangled_photons_state(2))
+        return 10**(-self.loss/10)
+
 
     def heralding_probability(self, i, j, k, l):
+
+        key = (i,j,k,l)
+
+        if key in self.memo_heralding_probability:
+            return self.memo_heralding_probability[key]
+
         N = self.dimension
 
         ket_ijkl = qt.tensor(qt.fock(N,i), qt.fock(N,j), qt.fock(N,k), qt.fock(N,l))
@@ -1245,9 +1268,18 @@ class Entanglement_swapping:
 
         ijkl_projector = qt.tensor(qt.qeye(N), qt.qeye(N), ket_ijkl*bra_ijkl, qt.qeye(N), qt.qeye(N))
 
-        return abs(self.beam_splitter_outing().dag()*(ijkl_projector*self.beam_splitter_outing()))
+        probability = abs(self.beam_splitter_outing.dag()*(ijkl_projector*self.beam_splitter_outing))
+
+        self.memo_heralding_probability[key] = probability
+
+        return probability
 
     def b_c_bell_measurement(self, i, j, k, l):
+
+        key = (i,j,k,l)
+
+        if key in self.memo_b_c_bell_measurement:
+            return self.memo_b_c_bell_measurement[key]
 
         N = self.dimension
 
@@ -1258,13 +1290,15 @@ class Entanglement_swapping:
 
         partial_dot_product_matrix = qt.tensor(qt.qeye(N), qt.qeye(N), bra_ijkl, qt.qeye(N), qt.qeye(N))
 
-        if self.heralding_probability(i, j, k, l) < 1e-15:
+        if self.heralding_probability(i, j, k, l) == 0:
 
             return qt.tensor(qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0))
 
-        vect = partial_dot_product_matrix*ijkl_projector*self.beam_splitter_outing()/np.sqrt(self.heralding_probability(i, j, k, l))
+        vect = partial_dot_product_matrix*ijkl_projector*self.beam_splitter_outing/np.sqrt(self.heralding_probability(i, j, k, l))
 
         vect.dims = [[N, N, N, N], [1, 1, 1, 1]]
+
+        self.memo_b_c_bell_measurement[key] = vect
 
         return vect
 
@@ -1284,7 +1318,16 @@ class Entanglement_swapping:
 
         efficiency_3_z = self.detector_3.efficiency*self.receiver_3.z_basis_transmittance()*self.channel_3.transmittance()*self.source_2.optical_efficiency()
 
-        probability_qrst_detection = sum(conditionnal_detection_probability(no_background_rate_2, efficiency_2_x, q, n) * conditionnal_detection_probability(no_background_rate_2, efficiency_2_z, r, m) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_x, s, o) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_z, t, p)*self.heralding_probability(n, m, o, p) for n in range(N) for m in range(N) for o in range(N) for p in range(N))
+        key = (q,r,s,t)
+
+        if key in self.memo_qrst_proba:
+
+            probability_qrst_detection = self.memo_qrst_proba[key]
+
+        else:
+            probability_qrst_detection = sum(conditionnal_detection_probability(no_background_rate_2, efficiency_2_x, q, n) * conditionnal_detection_probability(no_background_rate_2, efficiency_2_z, r, m) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_x, s, o) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_z, t, p)*self.heralding_probability(n, m, o, p) for n in range(N) for m in range(N) for o in range(N) for p in range(N))
+
+            self.memo_qrst_proba[key] = probability_qrst_detection
 
         return (conditionnal_detection_probability(no_background_rate_2, efficiency_2_x, q, i) * conditionnal_detection_probability(no_background_rate_2, efficiency_2_z, r, j) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_x, s, k) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_z, t, l))/probability_qrst_detection
 
@@ -1292,7 +1335,17 @@ class Entanglement_swapping:
 
         N = self.dimension
 
-        return sum(self.entrance_knowing_detection_probability(q, r, s, t, n, m, o, p)*self.b_c_bell_measurement(n, m, o, p)*self.b_c_bell_measurement(n, m, o, p).dag() for n in range(N) for m in range(N) for o in range(N) for p in range(N))
+        key = (q,r,s,t)
+
+        if key in self.memo_density_matrix:
+
+            return self.memo_density_matrix[key]
+
+        density_matrix = sum(self.entrance_knowing_detection_probability(q, r, s, t, n, m, o, p)*self.b_c_bell_measurement(n, m, o, p)*self.b_c_bell_measurement(n, m, o, p).dag() for n in range(N) for m in range(N) for o in range(N) for p in range(N))
+
+        self.memo_density_matrix[key] = density_matrix
+
+        return density_matrix
 
     def polarizers_action(self):
         N = self.dimension
@@ -1314,7 +1367,7 @@ class Entanglement_swapping:
         ket_nmop = qt.tensor(qt.fock(N,n), qt.fock(N,m), qt.fock(N,o), qt.fock(N,p))
         bra_nmop = ket_nmop.dag()
 
-        return bra_nmop*self.polarizers_action()*self.mixed_state_density_matrix(q, r, s, t)*self.polarizers_action().dag()*ket_nmop
+        return bra_nmop*self.polarizers_action*self.mixed_state_density_matrix(q, r, s, t)*self.polarizers_action.dag()*ket_nmop
 
     def outer_detection_probability_given_inner_results(self, u, v, w, x, q, r, s, t):
 
@@ -1338,7 +1391,7 @@ class Entanglement_swapping:
 
         combinations = list(product([0, 1], repeat=4))
 
-        possible_probabilities = [self.outer_detection_probability_given_inner_results(u, v, w, x, q, r, s, t) for u, v, w, x in combinations]
+        possible_probabilities = [abs(self.outer_detection_probability_given_inner_results(u, v, w, x, q, r, s, t)) for u, v, w, x in combinations]
 
         return max(possible_probabilities)
 
@@ -1346,14 +1399,17 @@ class Entanglement_swapping:
 
         combinations = list(product([0, 1], repeat=4))
 
-        possible_probabilities = [self.outer_detection_probability_given_inner_results(u, v, w, x, q, r, s, t) for u, v, w, x in combinations]
+        possible_probabilities = [abs(self.outer_detection_probability_given_inner_results(u, v, w, x, q, r, s, t)) for u, v, w, x in combinations]
 
         return min(possible_probabilities)
 
     def visibility(self, q, r, s, t):
 
-        return (self.max_outer_detection_probability_given_inner_results(q, r, s, t)-self.min_outer_detection_probability_given_inner_results(q, r, s, t))/(self.max_outer_detection_probability_given_inner_results(q, r, s, t)+self.min_outer_detection_probability_given_inner_results(q, r, s, t))
+        q_max = self.max_outer_detection_probability_given_inner_results(q, r, s, t)
 
+        q_min = self.min_outer_detection_probability_given_inner_results(q, r, s, t)
+
+        return (q_max-q_min)/(q_max+q_min)
 
 ## Graphs
 """
@@ -1690,9 +1746,10 @@ def visibility_multipair_rate(*, q, r, s, t, min, max, values_number, dimension:
         y_values.append(visibility)
 
     plt.plot(x_values, y_values)
+ #   plt.xscale('log')
     plt.xlabel("Multipair production rate")
     plt.ylabel("Visibility")
-    plt.title(title)
+   # plt.title(title)
     plt.grid(True)
     plt.show()
 
@@ -1709,7 +1766,7 @@ channel_7 = FiberChannel(loss_per_km=0.2, distance_km=0.2, detection_error=0.01)
 
 receiver_7 = Receiver(transmittance=1)
 
-visibility_multipair_rate(q=0, r=1, s=1, t=0, min=0, max=1, values_number=200, dimension=2, source=source, channel_1=channel_7, detector_1=detector_7, receiver_1=receiver_7, polarizer_angle_1=np.pi/4)
+visibility_multipair_rate(q=0, r=1, s=1, t=0, min=0, max=1, values_number=200, dimension=2, source=source, channel_1=channel_7, detector_1=detector_7, receiver_1=receiver_7, polarizer_angle_1=np.pi/4, polarizer_angle_2=0)
 
 # Test 1:
 
@@ -1789,7 +1846,7 @@ f_6 = 1.2
 
 #print(source_6.coincidence_window_efficiency(310*10**(-12)))
 
-key_rate_loss_bbm92_continuous(min=0, max=275, values_number=300, source=source_6, detector1=detector_6, channel_1=channel_6, channel_2 = channel_6, receiver1=receiver_6, correction_efficiency=f_6, title="Key rate evolution with the loss in dB",coincidence_time =310*10**(-12))
+#key_rate_loss_bbm92_continuous(min=0, max=275, values_number=300, source=source_6, detector1=detector_6, channel_1=channel_6, channel_2 = channel_6, receiver1=receiver_6, correction_efficiency=f_6, title="Key rate evolution with the loss in dB",coincidence_time =310*10**(-12))
 
 #key_rate_brightness_continuous(min = 0.00000000001,max= 10**9, distance=100, values_number=300, detector1=detector_6, channel_1=channel_6, receiver1=receiver_6, correction_efficiency=f_6, title="Key rate evolution with the loss in dB",coincidence_time =310*10**(-12), source = source_6)
 
@@ -1811,7 +1868,7 @@ receiver_7 = Receiver(transmittance=1)
 
 f_7 = 1.2
 
-key_rate_loss_bbm92_continuous(min=0, max=400, values_number=400, source=source_7, detector1=detector_7, channel_1=channel_7, receiver1=receiver_7, correction_efficiency=f_7, title="Key rate evolution with the loss in dB",coincidence_time =46*10**(-12))
+#key_rate_loss_bbm92_continuous(min=0, max=400, values_number=400, source=source_7, detector1=detector_7, channel_1=channel_7, receiver1=receiver_7, correction_efficiency=f_7, title="Key rate evolution with the loss in dB",coincidence_time =46*10**(-12))
 
 #key_rate_brightness_continuous(min = 0.00000000001,max= 10**(10), distance=200, values_number=300, detector1=detector_7, channel_1=channel_7, receiver1=receiver_7, correction_efficiency=f_7, title="Key rate evolution with the loss in dB",coincidence_time =46*10**(-12), source = source_7)
 
