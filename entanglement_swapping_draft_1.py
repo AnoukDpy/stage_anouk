@@ -9,7 +9,8 @@ from scipy.integrate import quad
 from typing import Callable
 from scipy.special import voigt_profile
 import qutip as qt
-from itertools import product
+import itertools as its
+import scipy
 
 ## Source
 
@@ -441,6 +442,7 @@ class Continuous_Wave_Pumped_Source(Source):
             raise ValueError(f"brightness must be non-negative, got {value}")
         self._brightness = float(value)
 
+
     def probability_sending_i_state(self,i, coincidence_time) -> float:
         return poisson.pmf(i, self.brightness*coincidence_time)
 
@@ -451,31 +453,6 @@ class Continuous_Wave_Pumped_Source(Source):
     def optical_efficiency(self):
         return 10**(-self.optical_losses/10)
 
-class Entanglement_Swapping_Source(Source):
-
-    def __init__(self,*, multipair_production_rate: float, g2_profile: Callable, optical_losses: Optional[float] = None):
-
-        self.multipair_production_rate = multipair_production_rate
-        self.g2_profile = g2_profile
-
-        if optical_losses is None:
-            self.optical_losses = 0
-        else:
-            self.optical_losses = optical_losses
-
-    def brightness(self, coincidence_time):
-        return (np.sinh(self.multipair_production_rate)**2)/coincidence_time
-
-
-    def probability_sending_i_state(self,i, coincidence_time) -> float:
-        return poisson.pmf(i, self.brightness(coincidence_time)*coincidence_time)
-
-    def coincidence_window_efficiency(self, coincidence_time):
-
-        return quad(self.g2_profile, -coincidence_time, coincidence_time)[0]
-
-    def optical_efficiency(self):
-        return 10**(-self.optical_losses/10)
 
 ## Detector
 
@@ -1103,16 +1080,58 @@ def conditionnal_detection_probability(no_dark_count_proba, channel_efficiency, 
 
 ##
 
-class Entanglement_swapping:
+## functions
 
-    def __init__(self,*, dimension: int, source_1: Source, channel_1: FiberChannel, detector_1: Detector, receiver_1: Receiver, polarizer_angle_1: float, receiver_2: Optional[Receiver] = None, receiver_3: Optional[Receiver] = None, receiver_4: Optional[Receiver] = None, detector_2: Optional[Detector] = None, detector_3: Optional[Detector] = None, detector_4: Optional[Detector] = None, source_2: Optional[Source] = None, channel_2: Optional[FiberChannel] = None, channel_3: Optional[FiberChannel] = None, channel_4: Optional[FiberChannel] = None, beam_splitter_angle: Optional[float] = None, polarizer_angle_2: Optional[float] = None):
+def f(x):
+    return 2*x+1
 
-        self.dimension = dimension
+def h(x):
+    return 2*math.sqrt(x*(x+1))
+
+def reduced_matrix(x,y):
+
+    return np.array([[x,0,0,y],
+                     [0,x,y,0],
+                     [0,y,x,0],
+                     [y,0,0,x]])
+
+def beam_splitter_matrix(t):
+    a = np.sqrt(np.clip(t, 0.0, 1.0))
+    b = np.sqrt(np.clip(1-t, 0.0, 1.0))
+    partial_matrix = np.array([[a,0,b,0],
+                               [0,a,0,b],
+                               [-b,0,a,0],
+                               [0,-b,0,a]])
+
+    one_quadrature = scipy.linalg.block_diag(np.eye(2), partial_matrix, np.eye(2))
+    return np.kron(np.eye(2), one_quadrature)
+
+def polarizer_partial_matrix(t):
+    a = np.sqrt(np.clip(t, 0.0, 1.0))
+    b = np.sqrt(np.clip(1-t, 0.0, 1.0))
+    partial_matrix = np.array([[a,b],
+                               [-b,a]])
+    return partial_matrix
+
+def polarizers_matrix(t_a,t_b):
+    a = polarizer_partial_matrix(t_a)
+    b = polarizer_partial_matrix(t_b)
+    one_quadrature = scipy.linalg.block_diag(a, np.eye(2), np.eye(2), b)
+    return np.kron(np.eye(2), one_quadrature)
+
+
+
+
+## Protocol
+
+class Continuous_Entanglement_swapping:
+
+    def __init__(self,*, source_1: Source, channel_1: FiberChannel, detector_1: Detector, receiver_1: Receiver, receiver_2: Optional[Receiver] = None, receiver_3: Optional[Receiver] = None, receiver_4: Optional[Receiver] = None, detector_2: Optional[Detector] = None, detector_3: Optional[Detector] = None, detector_4: Optional[Detector] = None, source_2: Optional[Source] = None, channel_2: Optional[FiberChannel] = None, channel_3: Optional[FiberChannel] = None, channel_4: Optional[FiberChannel] = None):
+
         self.source_1 = source_1
         self.channel_1 = channel_1
         self.detector_1 = detector_1
         self.receiver_1 = receiver_1
-        self.polarizer_angle_1 = polarizer_angle_1
 
         if receiver_2 is None:
             self.receiver_2 = receiver_1
@@ -1174,443 +1193,132 @@ class Entanglement_swapping:
         else:
             self.channel_4 = channel_4
 
-        if beam_splitter_angle is None:
-            self.beam_splitter_angle = np.pi/4
+        self.beam_splitter_matrix = beam_splitter_matrix(1/2)
 
-        else:
-            self.beam_splitter_angle = beam_splitter_angle
+        self.detectors = {0: self.detector_1, 2: self.detector_2, 5: self.detector_3, 6: self.detector_4}
 
-        if polarizer_angle_2 is None:
-            self.polarizer_angle_2 = polarizer_angle_1
+        self.photons_emitted_state = self.photons_emitted_state()
 
-        else:
-            self.polarizer_angle_2 = polarizer_angle_2
+        self.beam_splitter_entanglement = self.beam_splitter_entanglement()
 
-        self.beam_splitter_operator = self.beam_splitter_operator()
+        self.k_loss_matrix = self.losses()[0]
 
-        self.entangled_photons_state_1 = self.entangled_photons_state(1)
-
-        self.entangled_photons_state_2 = self.entangled_photons_state(2)
-
-        self.polarizers_action = self.polarizers_action()
-
-        self.beam_splitter_outing = self.beam_splitter_operator*qt.tensor(self.entangled_photons_state_1, self.entangled_photons_state_2)
-
-        self.memo_heralding_probability = {}
-
-        self.memo_b_c_bell_measurement = {}
-
-        self.memo_qrst_proba = {}
-
-        self.memo_density_matrix = {}
+        self.alpha_loss_matrix = self.losses()[1]
 
 
-        ## Quantum definitions
 
-    def entangled_photons_state(self, i):
+    def photons_emitted_state(self):
 
-        if i == 1:
-            source = self.source_1
+        mu_1 = self.source_1.mean_photon_number
+        mu_2 = self.source_2.mean_photon_number
 
-        elif i == 2:
-            source = self.source_2
-        else:
-            raise ValueError(f"i must be 1 or 2, got {value}")
+        c_1 = f(mu_1)
+        d_1 = h(mu_1)
 
-        N = self.dimension
+        c_2 = f(mu_2)
+        d_2 = h(mu_2)
 
-        creation_a_h = qt.tensor(qt.create(N), qt.qeye(N), qt.qeye(N), qt.qeye(N))
-        creation_a_v = qt.tensor(qt.qeye(N), qt.create(N), qt.qeye(N), qt.qeye(N))
-        creation_b_h = qt.tensor(qt.qeye(N), qt.qeye(N), qt.create(N), qt.qeye(N))
-        creation_b_v = qt.tensor(qt.qeye(N), qt.qeye(N), qt.qeye(N), qt.create(N))
+        x_quadrature_1 = reduced_matrix(c_1,d_1)
+        x_quadrature_2 = reduced_matrix(c_2,d_2)
 
-        identity = qt.qeye(N**4)
+        p_quadrature_1 = reduced_matrix(c_1,-d_1)
+        p_quadrature_2 = reduced_matrix(c_2,-d_2)
 
-        vac = qt.tensor(qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0))
+        overall_matrix = scipy.linalg.block_diag(x_quadrature_1, x_quadrature_2, p_quadrature_1, p_quadrature_2)
 
-        exponent = 1j*np.tanh(source.multipair_production_rate)*(creation_a_h*creation_b_h+creation_a_v*creation_b_v)
+        return overall_matrix
 
-        matrix = qt.tensor(qt.qeye(N), qt.qeye(N), qt.qeye(N), qt.qeye(N))
+    def beam_splitter_entanglement(self):
 
-        for n in range(1,N+1):
-
-            matrix = matrix + (exponent**n)/math.factorial(n)
-
-        matrix.dims = [[N, N, N, N], [N, N, N, N]]
-
-        return ((1/np.cosh(source.multipair_production_rate)**2)*matrix)*vac
-
-    def beam_splitter_operator(self):
-
-        N = self.dimension
-
-        anihilation_b_h = qt.tensor(qt.destroy(N), qt.qeye(N), qt.qeye(N), qt.qeye(N))
-        anihilation_b_v = qt.tensor(qt.qeye(N), qt.destroy(N), qt.qeye(N), qt.qeye(N))
-        anihilation_c_h = qt.tensor(qt.qeye(N), qt.qeye(N), qt.destroy(N), qt.qeye(N))
-        anihilation_c_v = qt.tensor(qt.qeye(N), qt.qeye(N), qt.qeye(N), qt.destroy(N))
-
-        generator = self.beam_splitter_angle*((anihilation_b_h.dag()*anihilation_c_h - anihilation_c_h.dag()*anihilation_b_h)+(anihilation_b_v.dag()*anihilation_c_v - anihilation_c_v.dag()*anihilation_b_v))
-
-        return qt.tensor(qt.qeye(N), qt.qeye(N),generator.expm(),qt.qeye(N), qt.qeye(N))
-
-    def beam_splitter_efficiency(self):
-
-        return 10**(-self.loss/10)
+        return np.dot(self.beam_splitter_matrix.T, np.dot(self.photons_emitted_state, self.beam_splitter_matrix))
 
 
-    def heralding_probability(self, i, j, k, l):
+    def polarizer_rotators(self, polarizer_angle_1, polarizer_angle_2):
 
-        key = (i,j,k,l)
+        pol_matrix = polarizers_matrix(polarizer_angle_1, polarizer_angle_2)
 
-        if key in self.memo_heralding_probability:
-            return self.memo_heralding_probability[key]
+        return np.dot(pol_matrix.T, np.dot(self.beam_splitter_entanglement, pol_matrix))
 
-        N = self.dimension
 
-        ket_ijkl = qt.tensor(qt.fock(N,i), qt.fock(N,j), qt.fock(N,k), qt.fock(N,l))
-        bra_ijkl = ket_ijkl.dag()
+    def losses(self):
 
-        ijkl_projector = qt.tensor(qt.qeye(N), qt.qeye(N), ket_ijkl*bra_ijkl, qt.qeye(N), qt.qeye(N))
+        n_a_1 = self.source_1.optical_efficiency()*self.detector_1.efficiency*self.channel_1.transmittance()*self.receiver_1.transmittance*self.receiver_1.x_basis_transmittance()
 
-        probability = abs(self.beam_splitter_outing.dag()*(ijkl_projector*self.beam_splitter_outing))
+        n_a_2 = self.source_1.optical_efficiency()*self.detector_1.efficiency*self.channel_1.transmittance()*self.receiver_1.transmittance*self.receiver_1.z_basis_transmittance()
 
-        self.memo_heralding_probability[key] = probability
+        n_b_1 = self.source_1.optical_efficiency()*self.detector_2.efficiency*self.channel_2.transmittance()*self.receiver_2.transmittance*self.receiver_2.x_basis_transmittance()
+
+        n_b_2 = self.source_1.optical_efficiency()*self.detector_2.efficiency*self.channel_2.transmittance()*self.receiver_2.transmittance*self.receiver_2.z_basis_transmittance()
+
+        n_c_1 = self.source_2.optical_efficiency()*self.detector_3.efficiency*self.channel_3.transmittance()*self.receiver_3.transmittance*self.receiver_3.x_basis_transmittance()
+
+        n_c_2 = self.source_2.optical_efficiency()*self.detector_3.efficiency*self.channel_3.transmittance()*self.receiver_3.transmittance*self.receiver_3.z_basis_transmittance()
+
+        n_d_1 = self.source_2.optical_efficiency()*self.detector_4.efficiency*self.channel_4.transmittance()*self.receiver_4.transmittance*self.receiver_4.x_basis_transmittance()
+
+        n_d_2 = self.source_2.optical_efficiency()*self.detector_4.efficiency*self.channel_4.transmittance()*self.receiver_4.transmittance*self.receiver_4.z_basis_transmittance()
+
+        k_loss_matrix = np.sqrt(np.kron(np.eye(2), np.diag([n_a_1, n_a_2, n_b_1, n_b_2, n_c_1, n_c_2, n_d_1, n_d_2])))
+
+        alpha_loss_matrix = np.kron(np.eye(2), np.eye(8)-np.diag([n_a_1, n_a_2, n_b_1, n_b_2, n_c_1, n_c_2, n_d_1, n_d_2]))
+        return [k_loss_matrix, alpha_loss_matrix]
+
+    def state_loss_covariance(self, polarizer_angle_1, polarizer_angle_2):
+        return np.dot(self.k_loss_matrix.T, np.dot(self.polarizer_rotators(polarizer_angle_1, polarizer_angle_2), self.k_loss_matrix))+self.alpha_loss_matrix
+
+    def overall_coincidence_probability(self, polarizer_angle_1, polarizer_angle_2):
+
+        M = self.state_loss_covariance(polarizer_angle_1, polarizer_angle_2)
+
+        probability = 0
+
+        measured_lines = [0,2,5,6]
+
+        for k in range(0,5):
+
+            combinations = its.combinations(measured_lines, k)
+            partial_sum = 0
+
+            for X in combinations:
+
+                dark_count_factor = 1
+
+                for y in X:
+                    dark_count_factor = dark_count_factor*(-2*(1-self.detectors[y].background_rate()))
+
+                M_sub_x = M[np.ix_(X, X)]
+
+                P = tuple(y + 8 for y in X)
+
+                M_sub_p = M[np.ix_(P, P)]
+
+                M_sub = scipy.linalg.block_diag(M_sub_x, M_sub_p)
+
+                partial_sum =  partial_sum + dark_count_factor/np.sqrt(np.linalg.det(M_sub+np.eye(k*2)))
+
+            probability = probability + partial_sum
 
         return probability
 
-    def b_c_bell_measurement(self, i, j, k, l):
+    def visibility(self):
 
-        key = (i,j,k,l)
+        theta1 = np.linspace(0, 2*np.pi, 50)
+        theta2 = np.linspace(0, 2*np.pi, 50)
+        X, Y = np.meshgrid(theta1, theta2)
 
-        if key in self.memo_b_c_bell_measurement:
-            return self.memo_b_c_bell_measurement[key]
+        Z = np.zeros_like(X)
+        for i in range(X.shape[0]):
+            for j in range(X.shape[1]):
+                Z[i, j] = self.overall_coincidence_probability(X[i, j], Y[i, j])
 
-        N = self.dimension
+        p_max = np.max(Z)
+        p_min = np.min(Z)
 
-        ket_ijkl = qt.tensor(qt.fock(N,i), qt.fock(N,j), qt.fock(N,k), qt.fock(N,l))
-        bra_ijkl = ket_ijkl.dag()
+        return (p_max-p_min)/(p_max+p_min)
 
-        ijkl_projector = qt.tensor(qt.qeye(N), qt.qeye(N), ket_ijkl*bra_ijkl, qt.qeye(N), qt.qeye(N))
-
-        partial_dot_product_matrix = qt.tensor(qt.qeye(N), qt.qeye(N), bra_ijkl, qt.qeye(N), qt.qeye(N))
-
-        if self.heralding_probability(i, j, k, l) == 0:
-
-            return qt.tensor(qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0), qt.fock(N, 0))
-
-        vect = partial_dot_product_matrix*ijkl_projector*self.beam_splitter_outing/np.sqrt(self.heralding_probability(i, j, k, l))
-
-        vect.dims = [[N, N, N, N], [1, 1, 1, 1]]
-
-        self.memo_b_c_bell_measurement[key] = vect
-
-        return vect
-
-    def entrance_knowing_detection_probability(self, q, r, s, t, i, j, k, l):
-
-        N = self.dimension
-
-        no_background_rate_2 = 1-self.detector_2.background_rate()
-
-        no_background_rate_3 = 1-self.detector_3.background_rate()
-
-        efficiency_2_x = self.detector_2.efficiency*self.receiver_2.x_basis_transmittance()*self.channel_2.transmittance()*self.source_1.optical_efficiency()
-
-        efficiency_2_z = self.detector_2.efficiency*self.receiver_2.z_basis_transmittance()*self.channel_2.transmittance()*self.source_1.optical_efficiency()
-
-        efficiency_3_x = self.detector_3.efficiency*self.receiver_3.x_basis_transmittance()*self.channel_3.transmittance()*self.source_2.optical_efficiency()
-
-        efficiency_3_z = self.detector_3.efficiency*self.receiver_3.z_basis_transmittance()*self.channel_3.transmittance()*self.source_2.optical_efficiency()
-
-        key = (q,r,s,t)
-
-        if key in self.memo_qrst_proba:
-
-            probability_qrst_detection = self.memo_qrst_proba[key]
-
-        else:
-            probability_qrst_detection = sum(conditionnal_detection_probability(no_background_rate_2, efficiency_2_x, q, n) * conditionnal_detection_probability(no_background_rate_2, efficiency_2_z, r, m) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_x, s, o) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_z, t, p)*self.heralding_probability(n, m, o, p) for n in range(N) for m in range(N) for o in range(N) for p in range(N))
-
-            self.memo_qrst_proba[key] = probability_qrst_detection
-
-        return (conditionnal_detection_probability(no_background_rate_2, efficiency_2_x, q, i) * conditionnal_detection_probability(no_background_rate_2, efficiency_2_z, r, j) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_x, s, k) * conditionnal_detection_probability(no_background_rate_3, efficiency_3_z, t, l)*self.heralding_probability(i, j, k, l))/probability_qrst_detection
-
-    def mixed_state_density_matrix(self, q, r, s, t):
-
-        N = self.dimension
-
-        key = (q,r,s,t)
-
-        if key in self.memo_density_matrix:
-
-            return self.memo_density_matrix[key]
-
-        density_matrix = sum(self.entrance_knowing_detection_probability(q, r, s, t, n, m, o, p)*self.b_c_bell_measurement(n, m, o, p)*self.b_c_bell_measurement(n, m, o, p).dag() for n in range(N) for m in range(N) for o in range(N) for p in range(N))
-
-        self.memo_density_matrix[key] = density_matrix
-
-        return density_matrix
-
-    def polarizers_action(self):
-        N = self.dimension
-
-        anihilation_a_h = qt.tensor(qt.destroy(N), qt.qeye(N), qt.qeye(N), qt.qeye(N))
-        anihilation_a_v = qt.tensor(qt.qeye(N), qt.destroy(N), qt.qeye(N), qt.qeye(N))
-        anihilation_d_h = qt.tensor(qt.qeye(N), qt.qeye(N), qt.destroy(N), qt.qeye(N))
-        anihilation_d_v = qt.tensor(qt.qeye(N), qt.qeye(N), qt.qeye(N), qt.destroy(N))
-
-        generator_a = self.polarizer_angle_1*(anihilation_a_h.dag()*anihilation_a_v - anihilation_a_v.dag()*anihilation_a_h)
-
-        generator_d = self.polarizer_angle_2*(anihilation_d_h.dag()*anihilation_d_v - anihilation_d_v.dag()*anihilation_d_h)
-
-        return generator_a.expm()*generator_d.expm()
-
-    def outer_detection_probability_given_inner_results(self, u, v, w, x, q, r, s, t):
-        N = self.dimension
-
-        polarizer_density = self.polarizers_action*self.mixed_state_density_matrix(q, r, s, t)*self.polarizers_action.dag()
-
-        no_background_rate_1 = 1-self.detector_1.background_rate()
-
-        no_background_rate_4 = 1-self.detector_4.background_rate()
-
-        efficiency_1_x = self.detector_1.efficiency*self.receiver_1.x_basis_transmittance()*self.channel_1.transmittance()*self.source_1.optical_efficiency()
-
-        efficiency_1_z = self.detector_1.efficiency*self.receiver_1.z_basis_transmittance()*self.channel_1.transmittance()*self.source_1.optical_efficiency()
-
-        efficiency_4_x = self.detector_4.efficiency*self.receiver_4.x_basis_transmittance()*self.channel_4.transmittance()*self.source_2.optical_efficiency()
-
-        efficiency_4_z = self.detector_4.efficiency*self.receiver_4.z_basis_transmittance()*self.channel_4.transmittance()*self.source_2.optical_efficiency()
-
-        sum = 0
-
-        for n in range(N):
-            for m in range(N):
-                for o in range(N):
-                    for p in range(N):
-
-                        ket_nmop = qt.tensor(qt.fock(N,n), qt.fock(N,m), qt.fock(N,o), qt.fock(N,p))
-                        bra_nmop = ket_nmop.dag()
-
-                        sum = sum + (conditionnal_detection_probability(no_background_rate_1, efficiency_1_x, u, n) * conditionnal_detection_probability(no_background_rate_1, efficiency_1_z, v, m) * conditionnal_detection_probability(no_background_rate_4, efficiency_4_x, w, o) * conditionnal_detection_probability(no_background_rate_4, efficiency_4_z, x, p) * bra_nmop*polarizer_density*ket_nmop)
-
-        return sum
-
-    def max_outer_detection_probability_given_inner_results(self, q, r, s, t):
-
-        N = self.dimension
-
-        combinations = list(product(range(N), repeat=4))
-
-        possible_probabilities = [abs(self.outer_detection_probability_given_inner_results(u, v, w, x, q, r, s, t)) for u, v, w, x in combinations]
-
-        return max(possible_probabilities)
-
-    def min_outer_detection_probability_given_inner_results(self, q, r, s, t):
-
-        N = self.dimension
-
-        combinations = list(product(range(N), repeat=4))
-
-        possible_probabilities = [abs(self.outer_detection_probability_given_inner_results(u, v, w, x, q, r, s, t)) for u, v, w, x in combinations]
-
-        return min(possible_probabilities)
-
-    def visibility(self, q, r, s, t):
-
-        q_max = self.max_outer_detection_probability_given_inner_results(q, r, s, t)
-
-        q_min = self.min_outer_detection_probability_given_inner_results(q, r, s, t)
-
-        return (q_max-q_min)/(q_max+q_min)
 
 ## Graphs
-"""
-def key_rate_distance_km_bb84(min, max, values_number, source: Source, detector: Detector, FiberChannel: FiberChannel, correction_efficiency: float):
-    x_values = np.linspace(min, max, values_number)
-    y1_values = []
-    y2_values = []
-    for x in x_values:
-        protocol = Protocol(source, detector, FiberChannel, correction_efficiency, x)
-        y1 = protocol.key_rate_decoy_state_inf_key()
-        y1_values.append(y1)
 
-        y2 = protocol.key_rate_no_decoy_state_inf_key()
-        y2_values.append(y2)
-
-    plt.plot(x_values, y1_values, color = 'blue', label = "With active decoy state")
-    plt.plot(x_values, y2_values, color = 'red', label = "Without decoy state")
-   # plt.yscale('log')
-    plt.xlabel("distance_km in km")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the distance_km")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-def key_rate_distance_km_bb84(min, max, values_number, source: Source, detector: Detector, FiberChannel: FiberChannel, receiver: Receiver, correction_efficiency: float, title: str):
-    x_values = np.linspace(min, max, values_number)
-    y1_values = []
-    for x in x_values:
-        protocol = BB84(source, detector, FiberChannel, receiver, correction_efficiency, x)
-        y1 = protocol.key_rate_decoy_state_inf_key()
-        y1_values.append(y1)
-
-    plt.plot(x_values, y1_values, color = 'blue', label = "With active decoy state")
-    plt.yscale('log')
-    plt.xlabel("distance_km in km")
-    plt.ylabel("Key rate in bpp")
-    plt.title(title)
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-def key_rate_distance_km_BBM92(min, max, values_number, source: Source, detector1: Detector,detector2: Detector, channel_1: FiberChannel,channel_2: FiberChannel, receiver1: Receiver,receiver2: Receiver, correction_efficiency: float, title: str):
-    x_values = np.linspace(min, max, values_number)
-    y1_values = []
-    for x in x_values:
-        protocol = BBM92(source, detector1,detector2, channel_1,channel_2, receiver1,receiver2, correction_efficiency, x,0)
-        y1 = protocol.key_rate()
-        y1_values.append(y1)
-
-    plt.plot(x_values, y1_values, color = 'red')
-    plt.yscale('log')
-    plt.xlabel("distance_km in km")
-    plt.ylabel("Key rate in bpp")
-    plt.title(title)
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-
-def key_rate_distance_km_bb84_decoy_state(min, max, values_number, intensities, detector: Detector, FiberChannel: FiberChannel, correction_efficiency: float):
-    for i in intensities:
-        source = Attenuated_Laser(i)
-        x_values = np.linspace(min, max, values_number)
-        y1_values = []
-        for x in x_values:
-            protocol = Protocol(source, detector, FiberChannel, correction_efficiency, x)
-            y1 = protocol.key_rate_decoy_state_inf_key()
-            y1_values.append(y1)
-        plt.plot(x_values, y1_values, label = f"Source's intensity = {i}")
-    plt.yscale('log')
-    plt.xlabel("distance_km in km")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the distance_km")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-def key_rate_distance_km_bb84_mhps(min, max, values_number, intensity, hs_units, detector: Detector, FiberChannel: FiberChannel, correction_efficiency: float):
-    for u in hs_units:
-        source = Multiplexed_Heralded_Photon_Source(intensity, u )
-        x_values = np.linspace(min, max, values_number)
-        y1_values = []
-        for x in x_values:
-            protocol = Protocol(source, detector, FiberChannel, correction_efficiency, x)
-            y1 = protocol.key_rate_decoy_state_inf_key()
-            y1_values.append(y1)
-        plt.plot(x_values, y1_values, label = f"HS units = {u}")
-    plt.yscale('log')
-    plt.xlabel("distance_km in km")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the distance_km")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-
-def key_rate_intensity_attenuated_laser(min, max, values_number, detector: Detector, FiberChannel: FiberChannel, correction_efficiency: float, distance_km: float):
-    x_values = np.linspace(min, max, values_number)
-    y1_values = []
-    y2_values = []
-    for x in x_values:
-        source = Attenuated_Laser(x)
-        protocol = Protocol(source, detector, FiberChannel, correction_efficiency, distance_km)
-        y1 = protocol.key_rate_decoy_state_inf_key()
-        y1_values.append(y1)
-
-        y2 = protocol.key_rate_no_decoy_state_inf_key()
-        y2_values.append(y2)
-
-    plt.plot(x_values, y1_values, color = 'blue', label = "With active decoy state")
-    plt.plot(x_values, y2_values, color = 'red', label = "Without decoy state")
-    plt.yscale('log')
-    plt.xlabel("Source intensity")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the source's intensity")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-def key_rate_intensity_attenuated_laser_test(min, max, values_number, detector: Detector, FiberChannel: FiberChannel, correction_efficiency: float, distance_km: float):
-    x_values = np.linspace(min, max, values_number)
-    y1_values = []
-    for x in x_values:
-        source = Attenuated_Laser(x)
-        protocol = Protocol(source, detector, FiberChannel, correction_efficiency, distance_km)
-        y1 = protocol.key_rate_decoy_state_no_correction()
-        y1_values.append(y1)
-
-    plt.plot(x_values, y1_values, color = 'blue', label = "With active decoy state")
-    plt.yscale('log')
-    plt.xlabel("Source intensity")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the source's intensity")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-def key_rate_intensity_mhps(min, max, values_number, sources_num: float, detector: Detector, FiberChannel: FiberChannel, correction_efficiency: float, distance_km: float):
-    x_values = np.linspace(min, max, values_number)
-    y_values = []
-    for x in x_values:
-        source = Multiplexed_Heralded_Photon_Source(x, sources_num)
-        protocol = Protocol(source, detector, FiberChannel, correction_efficiency, distance_km)
-        y = protocol.key_rate_decoy_state_inf_key()
-        y_values.append(y)
-
-    plt.plot(x_values, y_values)
-    #plt.yscale('log')
-    plt.xlabel("Source intensity")
-    plt.ylabel("Key rate in bpp")
-    plt.title("Evolution of the key rate with the source's intensity")
-    plt.grid(True)
-    plt.show()
-
-def key_rate_hs_units_mhps(min, max, intensity: float, detector: Detector, FiberChannel: FiberChannel, correction_efficiency: float, distance_km: float):
-    x_values = np.arange(min,max+1)
-    y_values = []
-    for x in x_values:
-        source = Multiplexed_Heralded_Photon_Source(intensity, x)
-        protocol = Protocol(source, detector, FiberChannel, correction_efficiency, distance_km)
-        y = protocol.key_rate_decoy_state_inf_key()
-        y_values.append(y)
-
-    plt.plot(x_values, y_values, 'x')
-    #plt.yscale('log')
-    plt.xlabel("HS units")
-    plt.ylabel("Key rate")
-    plt.title("Evolution of the key rate with the HS units")
-    plt.grid(True)
-    plt.show()
-
-def graph_proba(min, max, source: Source, title: str):
-    x_values = np.arange(min, max+1)
-    y_values =[]
-    for x in x_values:
-        y = source.probability_sending_i_state(x)
-        y_values.append(y)
-    plt.plot(x_values, y_values, 'x')
-    plt.yscale('log')
-    plt.xlabel("Photons number")
-    plt.ylabel("Probability of sending")
-    plt.title(title)
-    plt.grid(True)
-    plt.show()
-
-
-"""
 
 def key_rate_distance_km_bb84(*, min, max, values_number, source: Source, detector: Detector, channel: FiberChannel, receiver: Receiver, correction_efficiency: float, title: str):
     x_values = np.linspace(min, max, values_number)
@@ -1744,42 +1452,39 @@ def key_rate_brightness_continuous(*, min, max, distance: float, values_number, 
     plt.grid(True)
     plt.show()
 
-def visibility_multipair_rate(*, q, r, s, t, min, max, values_number, dimension: int, source: Source, channel_1: FiberChannel, detector_1: Detector, receiver_1: Receiver, polarizer_angle_1: float, receiver_2: Optional[Receiver] = None, receiver_3: Optional[Receiver] = None, receiver_4: Optional[Receiver] = None, detector_2: Optional[Detector] = None, detector_3: Optional[Detector] = None, detector_4: Optional[Detector] = None, channel_2: Optional[FiberChannel] = None, channel_3: Optional[FiberChannel] = None, channel_4: Optional[FiberChannel] = None, beam_splitter_angle: Optional[float] = None, polarizer_angle_2: Optional[float] = None):
+def visibility_mean_photon_number(*,min, max, values_number, source: Source, channel_1: FiberChannel, detector_1: Detector, receiver_1: Receiver, receiver_2: Optional[Receiver] = None, receiver_3: Optional[Receiver] = None, receiver_4: Optional[Receiver] = None, detector_2: Optional[Detector] = None, detector_3: Optional[Detector] = None, detector_4: Optional[Detector] = None, channel_2: Optional[FiberChannel] = None, channel_3: Optional[FiberChannel] = None, channel_4: Optional[FiberChannel] = None):
 
     x_values = np.linspace(min, max, values_number)
     y_values = []
 
     for x in x_values:
 
-        source.multipair_production_rate = x
-        entanglement_swapping = Entanglement_swapping(dimension = dimension, source_1 = source, source_2 = source, channel_1 = channel_1, detector_1 = detector_1, receiver_1 = receiver_1, polarizer_angle_1 = polarizer_angle_1, receiver_2 = receiver_2, receiver_3 = receiver_3, receiver_4 = receiver_4, detector_2 = detector_2, detector_3 = detector_3, detector_4 = detector_4, channel_2 = channel_2, channel_3 = channel_3, channel_4 = channel_4, beam_splitter_angle = beam_splitter_angle, polarizer_angle_2 = polarizer_angle_2)
+        source.mean_photon_number = x
+        entanglement_swapping = Continuous_Entanglement_swapping(source_1 = source, source_2 = source, channel_1 = channel_1, detector_1 = detector_1, receiver_1 = receiver_1, receiver_2 = receiver_2, receiver_3 = receiver_3, receiver_4 = receiver_4, detector_2 = detector_2, detector_3 = detector_3, detector_4 = detector_4, channel_2 = channel_2, channel_3 = channel_3, channel_4 = channel_4)
 
-        visibility = entanglement_swapping.visibility(q, r, s, t)
+        visibility = entanglement_swapping.visibility()
 
         y_values.append(visibility)
 
     plt.plot(x_values, y_values)
  #   plt.xscale('log')
-    plt.xlabel("Multipair production rate")
+    plt.xlabel("Mean photon number")
     plt.ylabel("Visibility")
    # plt.title(title)
     plt.grid(True)
     plt.show()
 
 # Test entanglement swapping
-def g2_source_7(t):
-    t_delta = 10**(-10)
-    return (2.0 / t_delta) * np.sqrt(np.log(2.0) / np.pi)*np.exp(-4.0 * np.log(2.0) * (t ** 2) / (t_delta**2))
 
-source = Entanglement_Swapping_Source(multipair_production_rate = 0, g2_profile = g2_source_7)
+source = Attenuated_Laser(mean_photon_number=0.48, repetition_rate=0)
 
-detector_7 = Threshold_detector(dark_count_rate=250, efficiency=0.76, time_window=46*10**(-12), after_pulsing=0)
+detector_7 = Threshold_detector(dark_count_rate=10**(5), efficiency=0.7, time_window=10**(-10), after_pulsing=0)
 
-channel_7 = FiberChannel(loss_per_km=0.2, distance_km=0.2, detection_error=0.01)
+channel_7 = FiberChannel(loss_per_km=0.2, distance_km=62, detection_error=0.01)
 
 receiver_7 = Receiver(transmittance=1)
 
-visibility_multipair_rate(q=0, r=1, s=1, t=0, min=0, max=1, values_number=50, dimension=3, source=source, channel_1=channel_7, detector_1=detector_7, receiver_1=receiver_7, polarizer_angle_1=np.pi/2)
+visibility_mean_photon_number(min=0, max=0.2, values_number=50, source=source, channel_1=channel_7, detector_1=detector_7, receiver_1=receiver_7)
 
 # Test 1:
 
