@@ -10,6 +10,7 @@ from scipy.integrate import quad
 from typing import Callable
 from scipy.special import voigt_profile
 import itertools as its
+import scipy
 
 ## functions
 
@@ -57,17 +58,12 @@ def polarizers_matrix(t_a,t_b):
 
 class Continuous_Entanglement_swapping:
 
-    def __init__(self,*, source_1: Source, channel_1: FiberChannel, detector_1: Detector, receiver_1: Receiver, polarizer_angle_1: float):
+    def __init__(self,*, source_1: Source, channel_1: FiberChannel, detector_1: Detector, receiver_1: Receiver, receiver_2: Optional[Receiver] = None, receiver_3: Optional[Receiver] = None, receiver_4: Optional[Receiver] = None, detector_2: Optional[Detector] = None, detector_3: Optional[Detector] = None, detector_4: Optional[Detector] = None, source_2: Optional[Source] = None, channel_2: Optional[FiberChannel] = None, channel_3: Optional[FiberChannel] = None, channel_4: Optional[FiberChannel] = None):
 
-
-    def __init__(self,*, dimension: int, source_1: Source, channel_1: FiberChannel, detector_1: Detector, receiver_1: Receiver, polarizer_angle_1: float, receiver_2: Optional[Receiver] = None, receiver_3: Optional[Receiver] = None, receiver_4: Optional[Receiver] = None, detector_2: Optional[Detector] = None, detector_3: Optional[Detector] = None, detector_4: Optional[Detector] = None, source_2: Optional[Source] = None, channel_2: Optional[FiberChannel] = None, channel_3: Optional[FiberChannel] = None, channel_4: Optional[FiberChannel] = None, beam_splitter_angle: Optional[float] = None, polarizer_angle_2: Optional[float] = None):
-
-        self.dimension = dimension
         self.source_1 = source_1
         self.channel_1 = channel_1
         self.detector_1 = detector_1
         self.receiver_1 = receiver_1
-        self.polarizer_angle_1 = polarizer_angle_1
 
         if receiver_2 is None:
             self.receiver_2 = receiver_1
@@ -129,23 +125,19 @@ class Continuous_Entanglement_swapping:
         else:
             self.channel_4 = channel_4
 
-        if beam_splitter_angle is None:
-            self.beam_splitter_angle = np.pi/4
-
-        else:
-            self.beam_splitter_angle = beam_splitter_angle
-
-        if polarizer_angle_2 is None:
-            self.polarizer_angle_2 = polarizer_angle_1
-
-        else:
-            self.polarizer_angle_2 = polarizer_angle_2
-
         self.beam_splitter_matrix = beam_splitter_matrix(1/2)
 
-        self.polarizers_matrix = polarizers_matrix(self.polarizer_angle_1,self.polarizer_angle_2)
-
         self.detectors = {0: self.detector_1, 2: self.detector_2, 5: self.detector_3, 6: self.detector_4}
+
+        self.photons_emitted_state = self.photons_emitted_state()
+
+        self.beam_splitter_entanglement = self.beam_splitter_entanglement()
+
+        self.k_loss_matrix = self.losses()[0]
+
+        self.alpha_loss_matrix = self.losses()[1]
+
+
 
     def photons_emitted_state(self):
 
@@ -170,12 +162,14 @@ class Continuous_Entanglement_swapping:
 
     def beam_splitter_entanglement(self):
 
-        return np.dot(self.beam_splitter_matrix.T, np.dot(self.photons_emitted_state(), self.beam_splitter_matrix))
+        return np.dot(self.beam_splitter_matrix.T, np.dot(self.photons_emitted_state, self.beam_splitter_matrix))
 
 
-    def polarizer_rotators(self):
+    def polarizer_rotators(self, polarizer_angle_1, polarizer_angle_2):
 
-        return np.dot(self.polarizers_matrix.T, np.dot(self.beam_splitter_entanglement(), self.polarizers_matrix))
+        pol_matrix = polarizers_matrix(polarizer_angle_1, polarizer_angle_2)
+
+        return np.dot(pol_matrix.T, np.dot(self.beam_splitter_entanglement, pol_matrix))
 
 
     def losses(self):
@@ -196,15 +190,17 @@ class Continuous_Entanglement_swapping:
 
         n_d_2 = self.source_2.optical_efficiency()*self.detector_4.efficiency*self.channel_4.transmittance()*self.receiver_4.transmittance*self.receiver_4.z_basis_transmittance()
 
-        k_loss_matrix = np.sqrt(np.kron(np.eye(2), np.diag(n_a_1, n_a_2, n_b_1, n_b_2, n_c_1, n_c_2, n_d_1, n_d_2)))
+        k_loss_matrix = np.sqrt(np.kron(np.eye(2), np.diag([n_a_1, n_a_2, n_b_1, n_b_2, n_c_1, n_c_2, n_d_1, n_d_2])))
 
-        alpha_loss_matrix = np.kron(np.eye(2), np.eye(8)-np.diag(n_a_1, n_a_2, n_b_1, n_b_2, n_c_1, n_c_2, n_d_1, n_d_2))
-        return np.dot(k_loss_matrix.T, np.dot(self.polarizer_rotators(), k_loss_matrix))+alpha_loss_matrix
+        alpha_loss_matrix = np.kron(np.eye(2), np.eye(8)-np.diag([n_a_1, n_a_2, n_b_1, n_b_2, n_c_1, n_c_2, n_d_1, n_d_2]))
+        return [k_loss_matrix, alpha_loss_matrix]
 
+    def state_loss_covariance(self, polarizer_angle_1, polarizer_angle_2):
+        return np.dot(self.k_loss_matrix.T, np.dot(self.polarizer_rotators(polarizer_angle_1, polarizer_angle_2), self.k_loss_matrix))+self.alpha_loss_matrix
 
-    def overall_coincidence_probability(self):
+    def overall_coincidence_probability(self, polarizer_angle_1, polarizer_angle_2):
 
-        M = self.losses()
+        M = self.state_loss_covariance(polarizer_angle_1, polarizer_angle_2)
 
         probability = 0
 
@@ -213,7 +209,6 @@ class Continuous_Entanglement_swapping:
         for k in range(0,5):
 
             combinations = its.combinations(measured_lines, k)
-            dark_count_factor = (-2*(1-dark_count))**k
             partial_sum = 0
 
             for X in combinations:
@@ -221,19 +216,37 @@ class Continuous_Entanglement_swapping:
                 dark_count_factor = 1
 
                 for y in X:
-                    dark_count_factor = dark_count_factor*(-2*(1-self.detectors[y].back_ground_rate()))
+                    dark_count_factor = dark_count_factor*(-2*(1-self.detectors[y].background_rate()))
 
                 M_sub_x = M[np.ix_(X, X)]
 
-                P = tuple(y + 10 for y in X)
+                P = tuple(y + 8 for y in X)
 
                 M_sub_p = M[np.ix_(P, P)]
 
-                partial_sum =  partial_sum + dark_count_factor/np.sqrt(np.linalg.det(M_sub+np.eye(k)))
+                M_sub = scipy.linalg.block_diag(M_sub_x, M_sub_p)
+
+                partial_sum =  partial_sum + dark_count_factor/np.sqrt(np.linalg.det(M_sub+np.eye(k*2)))
 
             probability = probability + partial_sum
 
         return probability
+
+    def visibility(self):
+
+        theta1 = np.linspace(0, 2*np.pi, 50)
+        theta2 = np.linspace(0, 2*np.pi, 50)
+        X, Y = np.meshgrid(theta1, theta2)
+
+        Z = np.zeros_like(X)
+        for i in range(X.shape[0]):
+            for j in range(X.shape[1]):
+                Z[i, j] = self.overall_coincidence_probability(X[i, j], Y[i, j])
+
+        p_max = np.max(Z)
+        p_min = np.min(Z)
+
+        return (p_max-p_min)/(p_max+p_min)
 
 
 
