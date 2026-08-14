@@ -9,7 +9,7 @@ from typing import Optional
 from scipy.integrate import quad
 from typing import Callable
 from scipy.special import voigt_profile
-from itertools import product
+import itertools as its
 
 ## functions
 
@@ -44,9 +44,11 @@ def polarizer_partial_matrix(t):
                                [-b,a]])
     return partial_matrix
 
-def polarizer_matrix(t_a,t_b):
+def polarizers_matrix(t_a,t_b):
     a = polarizer_partial_matrix(t_a)
     b = polarizer_partial_matrix(t_b)
+    one_quadrature = scipy.linalg.block_diag(a, np.eye(2), np.eye(2), b)
+    return np.kron(np.eye(2), one_quadrature)
 
 
 
@@ -141,9 +143,9 @@ class Continuous_Entanglement_swapping:
 
         self.beam_splitter_matrix = beam_splitter_matrix(1/2)
 
-        self.polarizer_1_matrix =
+        self.polarizers_matrix = polarizers_matrix(self.polarizer_angle_1,self.polarizer_angle_2)
 
-        self.polarizer_2_matrix =
+        self.detectors = {0: self.detector_1, 2: self.detector_2, 5: self.detector_3, 6: self.detector_4}
 
     def photons_emitted_state(self):
 
@@ -168,135 +170,71 @@ class Continuous_Entanglement_swapping:
 
     def beam_splitter_entanglement(self):
 
-        overall_matrix = self.photons_emitted_state
+        return np.dot(self.beam_splitter_matrix.T, np.dot(self.photons_emitted_state(), self.beam_splitter_matrix))
 
-        a_x_1 = overall_matrix[2,1]
-        b_x_1 = overall_matrix[2,2]
-        c_x_1 = overall_matrix[4,4]
-        d_x_1 = overall_matrix[4,7]
-
-        a_p_1 = overall_matrix[10,9]
-        b_p_1 = overall_matrix[10,10]
-        c_p_1 = overall_matrix[12,12]
-        d_p_1 = overall_matrix[12,15]
-
-        sub_matrix_x_1 = np.array([[b_x_1,a_x_1],
-                                   [d_x_1,c_x_1]])
-
-        sub_matrix_p_1 = np.array([[b_p_1,a_p_1],
-                                   [d_p_1,c_p_1]])
-
-        a_x_2 = overall_matrix[3,0]
-        b_x_2 = overall_matrix[3,3]
-        c_x_2 = overall_matrix[5,5]
-        d_x_2 = overall_matrix[5,6]
-
-        a_p_2 = overall_matrix[11,8]
-        b_p_2 = overall_matrix[11,11]
-        c_p_2 = overall_matrix[13,13]
-        d_p_2 = overall_matrix[13,14]
-
-        sub_matrix_x_2 = np.array([[b_x_2,a_x_2],
-                                   [d_x_2,c_x_2]])
-
-        sub_matrix_p_2 = np.array([[b_p_2,a_p_2],
-                                   [d_p_2,c_p_2]])
-
-        bs_sub_matrix_x_1 = np.dot(self.beam_splitter_matrix.T,np.dot(sub_matrix_x_1,self.beam_splitter_matrix))
-
-        bs_sub_matrix_x_2 = np.dot(self.beam_splitter_matrix.T,np.dot(sub_matrix_x_2,self.beam_splitter_matrix))
-
-        bs_sub_matrix_p_1 = np.dot(self.beam_splitter_matrix.T,np.dot(sub_matrix_p_1,self.beam_splitter_matrix))
-
-        bs_sub_matrix_p_2 = np.dot(self.beam_splitter_matrix.T,np.dot(sub_matrix_p_2,self.beam_splitter_matrix))
-
-        overall_matrix[2,1] = bs_sub_matrix_x_1[0,1]
-        overall_matrix[2,2] = bs_sub_matrix_x_1[0,0]
-        overall_matrix[4,4] = bs_sub_matrix_x_1[1,1]
-        overall_matrix[4,7] = bs_sub_matrix_x_1[1,0]
-
-        overall_matrix[10,9] = bs_sub_matrix_p_1[0,1]
-        overall_matrix[10,10] = bs_sub_matrix_p_1[0,0]
-        overall_matrix[12,12] = bs_sub_matrix_p_1[1,1]
-        overall_matrix[12,14] = bs_sub_matrix_p_1[1,0]
-
-        overall_matrix[3,0] = bs_sub_matrix_x_2[0,1]
-        overall_matrix[3,3] = bs_sub_matrix_x_2[0,0]
-        overall_matrix[5,5] = bs_sub_matrix_x_2[1,1]
-        overall_matrix[5,6] = bs_sub_matrix_x_2[1,0]
-
-        overall_matrix[11,8] = bs_sub_matrix_p_2[0,1]
-        overall_matrix[11,11] = bs_sub_matrix_p_2[0,0]
-        overall_matrix[13,13] = bs_sub_matrix_p_2[1,1]
-        overall_matrix[13,14] = bs_sub_matrix_p_2[1,0]
-
-        return overall_matrix
 
     def polarizer_rotators(self):
 
-        overall_matrix = self.beam_splitter_entanglement
+        return np.dot(self.polarizers_matrix.T, np.dot(self.beam_splitter_entanglement(), self.polarizers_matrix))
 
-        a_x_a = overall_matrix[0,0]
-        b_x_a = overall_matrix[0,3]
-        c_x_a = overall_matrix[1,1]
-        d_x_a = overall_matrix[1,2]
 
-        a_p_a = overall_matrix[8,8]
-        b_p_a = overall_matrix[8,1]
-        c_p_a = overall_matrix[9,9]
-        d_p_a = overall_matrix[9,10]
+    def losses(self):
 
-        sub_matrix_x_a = np.array([[a_x_a,b_x_a],
-                                   [c_x_a,d_x_a]])
+        n_a_1 = self.source_1.optical_efficiency()*self.detector_1.efficiency*self.channel_1.transmittance()*self.receiver_1.transmittance*self.receiver_1.x_basis_transmittance()
 
-        sub_matrix_p_1 = np.array([[a_p_a,b_p_a],
-                                   [c_p_a,d_p_a]])
+        n_a_2 = self.source_1.optical_efficiency()*self.detector_1.efficiency*self.channel_1.transmittance()*self.receiver_1.transmittance*self.receiver_1.z_basis_transmittance()
 
-        a_x_d = overall_matrix[6,4]
-        b_x_d = overall_matrix[6,7]
-        c_x_d = overall_matrix[7,5]
-        d_x_d = overall_matrix[7,6]
+        n_b_1 = self.source_1.optical_efficiency()*self.detector_2.efficiency*self.channel_2.transmittance()*self.receiver_2.transmittance*self.receiver_2.x_basis_transmittance()
 
-        a_p_d = overall_matrix[14,13]
-        b_p_d = overall_matrix[14,14]
-        c_p_d = overall_matrix[15,12]
-        d_p_d = overall_matrix[15,15]
+        n_b_2 = self.source_1.optical_efficiency()*self.detector_2.efficiency*self.channel_2.transmittance()*self.receiver_2.transmittance*self.receiver_2.z_basis_transmittance()
 
-        sub_matrix_x_d = np.array([[a_x_d,b_x_d],
-                                   [c_x_d,d_x_d]])
+        n_c_1 = self.source_2.optical_efficiency()*self.detector_3.efficiency*self.channel_3.transmittance()*self.receiver_3.transmittance*self.receiver_3.x_basis_transmittance()
 
-        sub_matrix_p_d = np.array([[a_p_d,b_p_d],
-                                   [c_p_d,d_p_d]])
+        n_c_2 = self.source_2.optical_efficiency()*self.detector_3.efficiency*self.channel_3.transmittance()*self.receiver_3.transmittance*self.receiver_3.z_basis_transmittance()
 
-        bs_sub_matrix_x_a = np.dot(self.polarizer_1_matrix.T,np.dot(sub_matrix_x_a,self.polarizer_1_matrix))
+        n_d_1 = self.source_2.optical_efficiency()*self.detector_4.efficiency*self.channel_4.transmittance()*self.receiver_4.transmittance*self.receiver_4.x_basis_transmittance()
 
-        bs_sub_matrix_x_d = np.dot(self.polarizer_2_matrix.T,np.dot(sub_matrix_x_d,self.polarizer_2_matrix))
+        n_d_2 = self.source_2.optical_efficiency()*self.detector_4.efficiency*self.channel_4.transmittance()*self.receiver_4.transmittance*self.receiver_4.z_basis_transmittance()
 
-        bs_sub_matrix_p_a = np.dot(self.polarizer_1_matrix.T,np.dot(sub_matrix_p_a,self.polarizer_1_matrix))
+        k_loss_matrix = np.sqrt(np.kron(np.eye(2), np.diag(n_a_1, n_a_2, n_b_1, n_b_2, n_c_1, n_c_2, n_d_1, n_d_2)))
 
-        bs_sub_matrix_p_d = np.dot(self.polarizer_2_matrix.T,np.dot(sub_matrix_p_d,self.polarizer_2_matrix))
+        alpha_loss_matrix = np.kron(np.eye(2), np.eye(8)-np.diag(n_a_1, n_a_2, n_b_1, n_b_2, n_c_1, n_c_2, n_d_1, n_d_2))
+        return np.dot(k_loss_matrix.T, np.dot(self.polarizer_rotators(), k_loss_matrix))+alpha_loss_matrix
 
-        overall_matrix[0,0] = bs_sub_matrix_x_a[0,0]
-        overall_matrix[0,3] = bs_sub_matrix_x_a[0,1]
-        overall_matrix[1,1] = bs_sub_matrix_x_a[1,0]
-        overall_matrix[1,2] = bs_sub_matrix_x_a[1,1]
 
-        overall_matrix[8,8] = bs_sub_matrix_p_a[0,0]
-        overall_matrix[8,1] = bs_sub_matrix_p_a[0,1]
-        overall_matrix[9,9] = bs_sub_matrix_p_a[1,0]
-        overall_matrix[9,10] = bs_sub_matrix_p_a[1,1]
+    def overall_coincidence_probability(self):
 
-        overall_matrix[6,4] = bs_sub_matrix_x_d[0,0]
-        overall_matrix[6,7] = bs_sub_matrix_x_d[0,1]
-        overall_matrix[7,5] = bs_sub_matrix_x_d[1,0]
-        overall_matrix[7,6] = bs_sub_matrix_x_d[1,1]
+        M = self.losses()
 
-        overall_matrix[14,13] = bs_sub_matrix_p_d[0,0]
-        overall_matrix[14,14] = bs_sub_matrix_p_d[0,1]
-        overall_matrix[15,12] = bs_sub_matrix_p_d[1,0]
-        overall_matrix[15,15] = bs_sub_matrix_p_d[1,1]
+        probability = 0
 
-        return overall_matrix
+        measured_lines = [0,2,5,6]
+
+        for k in range(0,5):
+
+            combinations = its.combinations(measured_lines, k)
+            dark_count_factor = (-2*(1-dark_count))**k
+            partial_sum = 0
+
+            for X in combinations:
+
+                dark_count_factor = 1
+
+                for y in X:
+                    dark_count_factor = dark_count_factor*(-2*(1-self.detectors[y].back_ground_rate()))
+
+                M_sub_x = M[np.ix_(X, X)]
+
+                P = tuple(y + 10 for y in X)
+
+                M_sub_p = M[np.ix_(P, P)]
+
+                partial_sum =  partial_sum + dark_count_factor/np.sqrt(np.linalg.det(M_sub+np.eye(k)))
+
+            probability = probability + partial_sum
+
+        return probability
+
 
 
 
