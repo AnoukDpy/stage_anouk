@@ -2420,9 +2420,9 @@ class Continuous_Entanglement_swapping:
                     sub_x[d, d] += mp.mpf(1.0)
                     sub_p[d, d] += mp.mpf(1.0)
 
-                    det_val = mp.det(sub_x) * mp.det(sub_p)
+                det_val = mp.det(sub_x) * mp.det(sub_p)
 
-                    partial_sum = partial_sum + mp.mpf(1.0)/mp.sqrt(det_val)
+                partial_sum = partial_sum + mp.mpf(1.0)/mp.sqrt(det_val)
 
             probability = probability + dark_count_factor*partial_sum
 
@@ -2605,11 +2605,11 @@ source = Sagnac_Sources(mean_photon_number = 0.48, repetition_rate=0)
 
 detector_7 = Threshold_detector(dark_count_rate=10**(5), efficiency=0.7, time_window=10**(-10), after_pulsing=0)
 
-channel_7 = FiberChannel(loss_per_km=0.2, distance_km=10, detection_error=0.01)
+channel_7 = FiberChannel(loss_per_km=0.2, distance_km=150, detection_error=0.01)
 
 receiver_7 = Receiver(transmittance=1)
 
-visibility_mean_photon_number(min=0, max=0.2, values_number=200, bell_measurement_number = 1, source_1=source, channel_1=channel_7, detector_1=detector_7, receiver_1=receiver_7)
+visibility_mean_photon_number(min=0, max=0.2, values_number=50, bell_measurement_number = 2, source_1=source, channel_1=channel_7, detector_1=detector_7, receiver_1=receiver_7)
 
 # Test 1:
 
