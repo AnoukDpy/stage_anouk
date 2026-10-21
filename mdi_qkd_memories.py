@@ -151,6 +151,111 @@ class FiberChannel:
     def channel_bg_rate(self, pulse_duration):
         return 2*self.channel_background*pulse_duration
 
+## Detector
+
+class Detector(ABC):
+
+    def __init__(self, dark_count_rate: float, efficiency: float, time_window: float, after_pulsing: float):
+
+        self.dark_count_rate = dark_count_rate
+        self.efficiency = efficiency
+        self.time_window = time_window
+        self.after_pulsing = after_pulsing
+
+    @property
+    def dark_count_rate(self) -> float:
+        """ Return the dark count rate in Hz.
+
+        Must be non-negative
+        """
+        return self._dark_count_rate
+
+    @dark_count_rate.setter
+    def dark_count_rate(self, value: float) -> None:
+        if value < 0:
+            raise ValueError(f"dark_count_rate must be non-negative, got {value}")
+
+        self._dark_count_rate = float(value)
+
+    @property
+    def efficiency(self) -> float:
+        """ Return the efficiency of the detector.
+
+        Must be non-negative and less than 1
+        """
+        return self._efficiency
+
+    @efficiency.setter
+    def efficiency(self, value: float) -> None:
+        if value < 0 or value >1:
+            raise ValueError(f"efficiency must be non-negative and less than 1, got {value}")
+
+        self._efficiency = float(value)
+
+
+    @property
+    def time_window(self) -> float:
+        """ Return the time window of the detector in s.
+
+        Must be non-negative
+        """
+        return self._time_window
+
+    @time_window.setter
+    def time_window(self, value: float) -> None:
+        if value < 0:
+            raise ValueError(f"time_window must be non-negative, got {value}")
+
+        self._time_window = float(value)
+
+    @property
+    def after_pulsing(self) -> float:
+        """ Return the after pulsing probability of the detector.
+
+        Must be non-negative
+        """
+        return self._after_pulsing
+
+    @after_pulsing.setter
+    def after_pulsing(self, value: float) -> None:
+        if value < 0 or value >1:
+            raise ValueError(f"after_pulsing must be non-negative and less than 1, got {value}")
+
+        self._after_pulsing = float(value)
+
+    @abstractmethod
+
+    def dark_count_probability(self) -> float:
+
+        """Dark count probability"""
+
+    def background_rate(self) -> float:
+
+        """Overall back ground rate"""
+
+## Classes detector filles
+
+class Threshold_detector(Detector):
+
+    def __init__(self,*, dark_count_rate: float, efficiency: float, time_window: float, after_pulsing: float):
+
+        self.dark_count_rate = dark_count_rate
+        self.efficiency = efficiency
+        self.time_window = time_window
+        self.after_pulsing = after_pulsing
+
+        super().__init__(dark_count_rate, efficiency, time_window, after_pulsing)
+
+    def dark_count_probability(self):
+
+        dark_count_proba = self.dark_count_rate*self.time_window
+        return min(1,dark_count_proba)
+
+    def background_rate(self):
+
+        background_rate = 2*self.dark_count_probability()*(1+self.after_pulsing)
+        return min(1,background_rate)
+
 ##
 class Memory_Assisted_MDI_Protocol(Protocol):
 
@@ -173,11 +278,45 @@ class Memory_Assisted_MDI_Protocol(Protocol):
         else:
             self.channel_2 = channel_2
 
-## Alice's side, z basis
+""" Sources must have the same repetition rate """
 
-    def transmission_1(self, basis):
-        if
-        return self.detector.efficiency*self.receiver.z_basis_transmittance()*self.channel.transmittance()*self.source.optical_efficiency()
+##
+
+    def loading_probability_z(self, node):
+        if node == "1":
+            return 1- np.exp(-self.receiver.z_basis_transmittance()*self.channel_1.transmittance()*self.memory.writing_efficiency*self.source_1.mean_photon_number-self.memory.writing_efficiency*channel_bg_rate(self.source_1.pulse_duration))
+
+        else:
+            return 1- np.exp(-self.receiver.z_basis_transmittance()*self.channel_2.transmittance()*self.memory.writing_efficiency*self.source_2.mean_photon_number-self.memory.writing_efficiency*channel_bg_rate(self.source_2.pulse_duration))
+
+    def slingle_photon_loading_proba_z(self, node):
+        if node == "1":
+            return 1-(1-self.receiver.z_basis_transmittance()*self.channel_1.transmittance()*self.memory.writing_efficiency)*np.exp(-self.memory.writing_efficiency*channel_bg_rate(self.source_1.pulse_duration))
+
+        else:
+            return 1- (1-self.receiver.z_basis_transmittance()*self.channel_2.transmittance()*self.memory.writing_efficiency)*np.exp(-self.memory.writing_efficiency*channel_bg_rate(self.source_2.pulse_duration))
+
+    def proba_synchronised_loading(self):
+        return loading_probability_z(1)*loading_probability_z(2)/(loading_probability_z(1)+loading_probability_z(2)-loading_probability_z(1)*loading_probability_z(2))
+
+    def expected_loading_time(self):
+        return 1/(1-np.exp(self.source.repetition_period()/self.memory.storage_time)*(1-loading_probability_z(1)))+1/(1-np.exp(self.source.repetition_period()/self.memory.storage_time)*(1-loading_probability_z(2)))-1
+
+    def effective_measurement_efficiency(self):
+        return self.detector.efficiency*self.memory.reading_efficiency_0
+
+    def average_measurement_efficiency(self):
+        return self.detector.efficiency*self.memory.reading_efficiency_0*self.proba_synchronised_loading()*self.expected_loading_time()
+
+    def single_photon_succes_bsm_proba(self):
+        return ((1-self.detector.background_rate())**2)*(self.effective_measurement_efficiency()*self.average_measurement_efficiency()/2+(2*self.effective_measurement_efficiency()+2*self.average_measurement_efficiency()-3*self.effective_measurement_efficiency()*self.average_measurement_efficiency())*self.detector.background_rate()+4*(1-self.effective_measurement_efficiency())*(1-self.average_measurement_efficiency())*self.detector.background_rate()**2)
+
+    def loading_memories_rate_z(self):
+        return self.single_photon_succes_bsm_proba()*(1/(self.expected_loading_time()+self.memory.extra_rounds_reading()))
+
+    def single_photon_rate_z(self):
+        return self.loading_memories_rate_z()*self.slingle_photon_loading_proba_z(1)*self.slingle_photon_loading_proba_z(2)*self.source_1.mean_photon_number*self.source_2.mean_photon_number*np.exp(-self.source_1.mean_photon_number-self.source_2.mean_photon_number)/(self.loading_probability_z(1)*self.loading_probability_z(2))
+
 
 
 
