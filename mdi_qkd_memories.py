@@ -370,7 +370,7 @@ class Memory_Assisted_MDI_Protocol(Protocol):
 
     def expected_x_misalignement(self, efficiency, node):
         if node == "1":
-            return self.misalignement_z(efficiency 1)+self.beta(efficiency, 1)*self.misalignement_deph(1)
+            return self.misalignement_z(efficiency, 1)+self.beta(efficiency, 1)*self.misalignement_deph(1)
 
         else:
             return self.misalignement_z(efficiency, 2)+self.beta(efficiency, 2)**self.misalignement_deph(2)
@@ -389,6 +389,9 @@ class Memory_Assisted_MDI_Protocol(Protocol):
     def qm_error_z(self, eff_1, eff_2):
         return self.misalignement_z(self, eff_1, 1)*(1-self.misalignement_z(self, eff_2, 2))+self.misalignement_z(self, eff_2, 2)*(1-self.misalignement_z(self, eff_1, 1))
 
+    def expected_x_qm_misalignement(self, eff_1, eff_2):
+        return self.expected_x_misalignement(eff_1, 1)+self.expected_x_misalignement(eff_2, 2)-2*self.expected_x_misalignement(eff_1, 1)*self.expected_x_misalignement(eff_2, 2)
+
 ##
 
     def qm_z_single_photon_error(self):
@@ -398,7 +401,8 @@ class Memory_Assisted_MDI_Protocol(Protocol):
         return self.error_single_photon(self.effective_measurement_efficiency(), self.average_measurement_efficiency(), self.qm_error_z(self.loading_probability_z(1), self.loading_probability_z(2)), z)
 
 
-
+    def qm_single_qm_x(self):
+        return self.error_single_photon(eff_1, eff_2, self.expected_x_qm_misalignement(self, eff_1, eff_2), x)
 
 
 
