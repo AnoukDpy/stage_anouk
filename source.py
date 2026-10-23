@@ -267,15 +267,16 @@ class Asymmetric_Multiplexed_Heralded_Photon_Source(Source):
             raise ValueError(f"sources_num must be non-negative, got {value}")
         self._sources_num = int(value)
 
-    def probability_sending_i_state(self,i):
+        def probability_sending_i_state(self,i):
         sum = 0
-        for k in range(1, self.sources_num):
+        for k in range(1, self.sources_num+1):
             if k == self.sources_num:
-                k = self.sources_num -1
-            sum += np.exp(-self.efficiency*self.mean_photon_number*((self.transmittance**(1-k)-1)/(1-self.transmittance)))*(1-((1-self.efficiency)**k))*np.exp(self.efficiency*self.mean_photon_number-self.efficiency*self.mean_photon_number/self.transmittance**k)
+                k_j = self.sources_num -1
+            else:
+                k_j=k
+            sum += np.exp(-self.efficiency*self.mean_photon_number*((self.transmittance**(1-k)-1)/(1-self.transmittance)))*(1-((1-self.efficiency)**i))*np.exp(self.efficiency*self.mean_photon_number-self.efficiency*self.mean_photon_number/self.transmittance**k_j)
 
-        return poisson.pmf(i, self.mean_photon_number)*sum + (1-self.efficiency)*np.exp(-(1-self.efficiency)*self.mean_photon_number)*np.exp(-self.efficiency*self.mean_photon_number*(((2-self.transmittance)*self.transmittance**(1-self.sources_num))-1)/(1-self.transmittance))/math.factorial(i)
-
+        return poisson.pmf(i, self.mean_photon_number)*sum + (1-self.efficiency)*self.mean_photon_number*np.exp(-(1-self.efficiency)*self.mean_photon_number)*np.exp(-self.efficiency*self.mean_photon_number*(((2-self.transmittance)*self.transmittance**(1-self.sources_num))-1)/(1-self.transmittance))/math.factorial(i)
     def optical_efficiency(self):
         return 10**(-self.optical_losses/10)
 
