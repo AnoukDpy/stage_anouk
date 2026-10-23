@@ -13,6 +13,14 @@ import scipy
 from mpmath import mp
 
 mp.dps = 80
+
+##
+
+def binary_shannon_entropy(x):
+    if x<=0 or x>=1:
+        return 0
+    return -x*math.log2(x)-(1-x)*math.log2(1-x)
+
 ##
 class Heralding_Quantum_Memory:
 
@@ -336,7 +344,7 @@ class Memory_Assisted_MDI_Protocol(Protocol):
     def loading_memories_rate_z(self):
         return self.single_photon_succes_bsm_proba()*(1/(self.expected_loading_time()+self.memory.extra_rounds_reading()))
 
-    def single_photon_rate_z(self):
+    def qm_single_photon_rate_z(self):
         return self.loading_memories_rate_z()*self.single_photon_loading_proba_z(1)*self.single_photon_loading_proba_z(2)*self.source_1.mean_photon_number*self.source_2.mean_photon_number*np.exp(-self.source_1.mean_photon_number-self.source_2.mean_photon_number)/(self.loading_probability_z(1)*self.loading_probability_z(2))
 
 ## Misalignement terms
@@ -402,13 +410,35 @@ class Memory_Assisted_MDI_Protocol(Protocol):
 
 
     def qm_single_qm_x(self):
-        return self.error_single_photon(eff_1, eff_2, self.expected_x_qm_misalignement(self, eff_1, eff_2), x)
+        return self.error_single_photon(self.effective_measurement_efficiency(), self.expected_x_qm_misalignement(self, self.single_photon_loading_proba_z(1), self.single_photon_loading_proba_z(2)), x)
+
+##
+
+    def secret_key_rate(self):
+        return self.source.repetition_rate*(self.qm_single_photon_rate_z()*(1-binary_shannon_entropy(self.qm_single_qm_x()))-self.correction_efficiency*self.loading_memories_rate_z()*binary_shannon_entropy(self.qber_z_qm()))
 
 
 
+###
 
+def key_rate_loss(*, min, max, values_number, memory: Heralding_Quantum_Memory, source_1: Source, source_2: Source, detector: Detector, channel: FiberChannel, receiver: Receiver, correction_efficiency: float, title: str):
+    x_values = np.linspace(min/2, max/2, values_number)
+    horiz_axis = np.linspace(min * channel.loss_per_km, max * channel.loss_per_km, values_number)
+    y1_values = []
+    for x in x_values:
+        channel.distance_km = x
+        protocol = Memory_Assisted_MDI_Protocol(source_1=source_1,  detector=detector, channel_1=channel, receiver=receiver, correction_efficiency=correction_efficiency, memory=memory, source_2=source_2)
+        y1 = protocol.secret_key_rate
+        y1_values.append(y1)
 
-
+    plt.plot(horiz_axis, y1_values, color='blue', label="With decoy state")
+    plt.yscale('log')
+    plt.xlabel("Loss in dB")
+    plt.ylabel("Key rate in bpp")
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 
 
