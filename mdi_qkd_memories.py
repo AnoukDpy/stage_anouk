@@ -159,6 +159,80 @@ class FiberChannel:
 
     def channel_bg_rate(self, pulse_duration):
         return 2*self.channel_background*pulse_duration
+##
+
+class Receiver:
+
+    def __init__(self,*, transmittance: float, x_basis_loss: Optional[float] = None, z_basis_loss: Optional[float] = None):
+
+        self.transmittance = transmittance
+
+
+        if x_basis_loss is None:
+            self.x_basis_loss = 0
+
+        else:
+            self.x_basis_loss = x_basis_loss
+
+        if z_basis_loss is None:
+            self.z_basis_loss = self.x_basis_loss
+
+        else:
+            self.z_basis_loss = z_basis_loss
+
+    @property
+    def transmittance(self) -> float:
+        """ Return the transmittance of the detector.
+
+        Must be non-negative and less than 1
+        """
+        return self._transmittance
+
+    @transmittance.setter
+    def transmittance(self, value: float) -> None:
+        if value < 0 or value >1:
+            raise ValueError(f"transmittance must be non-negative and less than 1, got {value}")
+
+        self._transmittance = float(value)
+
+    @property
+    def x_basis_loss(self) -> float:
+        """ Return the optical loss in the X basis.
+
+        Must be non-negative.
+        """
+        return self._x_basis_loss
+
+    @x_basis_loss.setter
+    def x_basis_loss(self, value: float) -> None:
+        if value < 0:
+            raise ValueError(f"x_basis_loss must be non-negative, got {value}")
+
+        self._x_basis_loss = float(value)
+
+    @property
+    def z_basis_loss(self) -> float:
+        """ Return the optical loss in the Z basis.
+
+        Must be non-negative.
+        """
+        return self._z_basis_loss
+
+    @z_basis_loss.setter
+    def z_basis_loss(self, value: float) -> None:
+        if value < 0:
+            raise ValueError(f"z_basis_loss must be non-negative, got {value}")
+
+        self._z_basis_loss = float(value)
+
+    def x_basis_transmittance(self):
+
+        return 10**(-self.x_basis_loss/10)*self.transmittance
+
+    def z_basis_transmittance(self):
+
+        return 10**(-self.z_basis_loss/10)*self.transmittance
+
 
 ## Detector
 
@@ -266,7 +340,7 @@ class Threshold_detector(Detector):
         return min(1,background_rate)
 
 ##
-class Memory_Assisted_MDI_Protocol(Protocol):
+class Memory_Assisted_MDI_Protocol:
 
     def __init__(self, *, source_1: Source,  detector: Detector, channel_1: FiberChannel, receiver: Receiver, correction_efficiency: float, memory: Heralding_Quantum_Memory, source_2: Source, channel_2: Optional[FiberChannel] = None):
 
@@ -287,135 +361,145 @@ class Memory_Assisted_MDI_Protocol(Protocol):
         else:
             self.channel_2 = channel_2
 
-""" Sources must have the same repetition rate """
+    #Sources must have the same repetition rate
 
-##
+## efficiencies
 
     def loading_probability_z(self, node):
-        if node == "1":
+        if node == 1:
             return 1- np.exp(-self.receiver.z_basis_transmittance()*self.channel_1.transmittance()*self.memory.writing_efficiency*self.source_1.mean_photon_number-self.memory.writing_efficiency*self.channel_1.channel_bg_rate(self.source_1.pulse_duration))
 
         else:
             return 1- np.exp(-self.receiver.z_basis_transmittance()*self.channel_2.transmittance()*self.memory.writing_efficiency*self.source_2.mean_photon_number-self.memory.writing_efficiency*self.channel_2.channel_bg_rate(self.source_2.pulse_duration))
 
     def single_photon_loading_proba_z(self, node):
-        if node == "1":
-            return 1-(1-self.receiver.z_basis_transmittance()*self.channel_1.transmittance()*self.memory.writing_efficiency)*np.exp(-self.memory.writing_efficiency*channel_bg_rate(self.source_1.pulse_duration))
+        if node == 1:
+            return 1-(1-self.receiver.z_basis_transmittance()*self.channel_1.transmittance()*self.memory.writing_efficiency)*np.exp(-self.memory.writing_efficiency*self.channel_1.channel_bg_rate(self.source_1.pulse_duration))
 
         else:
-            return 1- (1-self.receiver.z_basis_transmittance()*self.channel_2.transmittance()*self.memory.writing_efficiency)*np.exp(-self.memory.writing_efficiency*channel_bg_rate(self.source_2.pulse_duration))
+            return 1- (1-self.receiver.z_basis_transmittance()*self.channel_2.transmittance()*self.memory.writing_efficiency)*np.exp(-self.memory.writing_efficiency*self.channel_1.channel_bg_rate(self.source_2.pulse_duration))
 
-    def proba_synchronised_loading(self):
-        return loading_probability_z(1)*loading_probability_z(2)/(loading_probability_z(1)+loading_probability_z(2)-loading_probability_z(1)*loading_probability_z(2))
+## Loading proba, time
 
-    def proba_advance_loading(self, node):
+    def proba_synchronised_loading(self, eff_1, eff_2):
+        return eff_1*eff_2/(eff_1+eff_2-eff_1*eff_2)
 
-        den = 1-(1-self.loading_probability_z(1))*(1-self.loading_probability_z(2))
+    def proba_advance_loading(self, node, eff_1, eff_2):
 
-        if node == "1":
-            return 1-self.loading_probability_z(1)/den
+        den = 1-(1-eff_1)*(1-eff_2)
+
+        if node == 1:
+            return 1-eff_1/den
         else:
-            return 1-self.loading_probability_z(2)/den
+            return 1-eff_2/den
 
-    def success_proba_advance(self, node):
-        den = 1-(1-self.loading_probability_z(1))*(1-self.loading_probability_z(2))
-        num = self.loading_probability_z(1)*self.loading_probability_z(2)
-        time_term = np.exp(self.source_1.repetition_period()/self.memory.coherence_time)
+    def success_proba_advance(self, node, eff_1, eff_2):
+        den = 1-(1-eff_1)*(1-eff_2)
+        num = eff_1*eff_2
+        time_term = np.exp(-self.source_1.repetition_period()/self.memory.coherence_time)
 
-        if node == "1":
-            return (1-self.loading_probability_z(1))*num*time_term/(den*(1-(1-self.loading_probability_z(1))*time_term))
+        if node == 1:
+            return (1-eff_1)*num*time_term/(den*(1-(1-eff_1)*time_term))
 
         else:
-            return (1-self.loading_probability_z(2))*num*time_term/(den*(1-(1-self.loading_probability_z(2))*time_term))
+            return (1-eff_2)*num*time_term/(den*(1-(1-eff_2)*time_term))
+
+    def expected_loading_time(self, eff_1, eff_2):
+        u = eff_1 + eff_2-eff_1*eff_2
+        return (1/eff_1+1/eff_2+(eff_1*(1-eff_2)/(eff_2*u))+(eff_2*(1-eff_1)/(eff_1*u)))/2
 
 
-    def expected_loading_time(self):
-        return 1/(1-np.exp(self.source_1.repetition_period()/self.memory.storage_time)*(1-loading_probability_z(1)))+1/(1-np.exp(self.source_1.repetition_period()/self.memory.storage_time)*(1-loading_probability_z(2)))-1
+    def exp_expected_loading_time(self, eff_1, eff_2):
+        return 1/(1-np.exp(-self.source_1.repetition_period()/self.memory.storage_time)*(1-eff_1))+1/(1-np.exp(-self.source_1.repetition_period()/self.memory.storage_time)*(1-eff_2))-1
+
+## measurement efficiencies
 
     def effective_measurement_efficiency(self):
         return self.detector.efficiency*self.memory.reading_efficiency_0
 
-    def average_measurement_efficiency(self):
-        return self.detector.efficiency*self.memory.reading_efficiency_0*self.proba_synchronised_loading()*self.expected_loading_time()
+    def average_measurement_efficiency(self, eff_1, eff_2):
+        return self.detector.efficiency*self.memory.reading_efficiency_0*self.proba_synchronised_loading(eff_1, eff_2)*self.exp_expected_loading_time(eff_1, eff_2)
 
     def single_photon_succes_bsm_proba(self, eff_1, eff_2):
         return ((1-self.detector.background_rate())**2)*(eff_1*eff_2/2+(2*eff_1+2*eff_2-3*eff_1*eff_2)*self.detector.background_rate()+4*(1-eff_1)*(1-eff_2)*self.detector.background_rate()**2)
 
+## Gains
+
     def loading_memories_rate_z(self):
-        return self.single_photon_succes_bsm_proba()*(1/(self.expected_loading_time()+self.memory.extra_rounds_reading()))
+        return self.single_photon_succes_bsm_proba(self.effective_measurement_efficiency(),self.average_measurement_efficiency(self.loading_probability_z(1),self.loading_probability_z(2)))*(1/(self.expected_loading_time(self.loading_probability_z(1),self.loading_probability_z(2))+self.memory.extra_rounds_reading(self.source_1.repetition_period())))
 
     def qm_single_photon_rate_z(self):
         return self.loading_memories_rate_z()*self.single_photon_loading_proba_z(1)*self.single_photon_loading_proba_z(2)*self.source_1.mean_photon_number*self.source_2.mean_photon_number*np.exp(-self.source_1.mean_photon_number-self.source_2.mean_photon_number)/(self.loading_probability_z(1)*self.loading_probability_z(2))
 
 ## Misalignement terms
 
-
     def bg_loading(self, efficiency, node):
-        if node == "1":
+        if node == 1:
             return (1-np.exp(-self.memory.writing_efficiency*self.channel_1.channel_bg_rate(self.source_1.pulse_duration)))/efficiency
         else:
             return (1-np.exp(-self.memory.writing_efficiency*self.channel_2.channel_bg_rate(self.source_2.pulse_duration)))/efficiency
 
     def beta(self, efficiency, node):
-        if node == "1":
+        if node == 1:
             return (1-2*self.channel_1.detection_error)*(1-self.bg_loading(efficiency, 1))
         else:
             return (1-2*self.channel_2.detection_error)*(1-self.bg_loading(efficiency, 2))
 
     def misalignement_z(self, efficiency, node):
-        if node == "1":
+        if node == 1:
             return self.channel_1.detection_error*(1-self.bg_loading(efficiency,1))+self.bg_loading(efficiency,1)/2
         else:
             return self.channel_2.detection_error*(1-self.bg_loading(efficiency,2))+self.bg_loading(efficiency,2)/2
 
-    def misalignement_deph(self, node):
-        if node == "1":
-            return (self.proba_advance_loading(1)-self.success_proba_advance(1))/2
+    def misalignement_deph(self, node, eff_1, eff_2):
+        if node == 1:
+            return (self.proba_advance_loading(2,eff_1, eff_2)-self.success_proba_advance(2,eff_1, eff_2))/2
 
         else:
-            return (self.proba_advance_loading(2)-self.success_proba_advance(2))/2
+            return (self.proba_advance_loading(1,eff_1, eff_2)-self.success_proba_advance(1,eff_1, eff_2))/2
 
 
-    def expected_x_misalignement(self, efficiency, node):
-        if node == "1":
-            return self.misalignement_z(efficiency, 1)+self.beta(efficiency, 1)*self.misalignement_deph(1)
+    def expected_x_misalignement(self, eff_1, eff_2, node):
+        if node == 1:
+            return self.misalignement_z(eff_1, 1)+self.beta(eff_1, 1)*self.misalignement_deph(1,eff_1, eff_2)
 
         else:
-            return self.misalignement_z(efficiency, 2)+self.beta(efficiency, 2)**self.misalignement_deph(2)
+            return self.misalignement_z(eff_2, 2)+self.beta(eff_2, 2)*self.misalignement_deph(2,eff_1, eff_2)
 
-    def expected_x_misalignement_product(self, efficiency):
-        return self.misalignement_z(efficiency, 1)*self.misalignement_z(efficiency, 2)+self.misalignement_z(efficiency, 2)*self.beta(efficiency, 1)*self.misalignement_deph(1)+self.misalignement_z(efficiency, 1)*self.beta(efficiency, 2)*self.misalignement_deph(2)
+    def expected_x_misalignement_product(self, eff_1, eff_2):
+        return self.misalignement_z(eff_1, 1)*self.misalignement_z(eff_2, 2)+self.misalignement_z(eff_2, 2)*self.beta(eff_1, 1)*self.misalignement_deph(1,eff_1, eff_2)+self.misalignement_z(eff_1, 1)*self.beta(eff_2, 2)*self.misalignement_deph(2,eff_1, eff_2)
 
     def error_single_photon(self, eff_1, eff_2, misalignement, basis):
+        y11 = self.single_photon_succes_bsm_proba(eff_1, eff_2)
         if basis == "x":
-            return 1/2*self.single_photon_succes_bsm_proba(eff_1, eff_2)-(1/2-misalignement)*((1-self.detector.background_rate())**2)*eff_1*eff_2/2
+            return (1/2*self.single_photon_succes_bsm_proba(eff_1, eff_2)-(1/2-misalignement)*((1-self.detector.background_rate())**2)*eff_1*eff_2/2)/y11
 
         else:
-            return 1/2*self.single_photon_succes_bsm_proba(eff_1, eff_2)-(1/2-misalignement)*((1-self.detector.background_rate())**2)*(1-2*self.detector.background_rate())*eff_1*eff_2/2
+            return (1/2*self.single_photon_succes_bsm_proba(eff_1, eff_2)-(1/2-misalignement)*((1-self.detector.background_rate())**2)*(1-2*self.detector.background_rate())*eff_1*eff_2/2)/y11
 
 
     def qm_error_z(self, eff_1, eff_2):
-        return self.misalignement_z(self, eff_1, 1)*(1-self.misalignement_z(self, eff_2, 2))+self.misalignement_z(self, eff_2, 2)*(1-self.misalignement_z(self, eff_1, 1))
+        return self.misalignement_z(eff_1, 1)*(1-self.misalignement_z(eff_2, 2))+self.misalignement_z(eff_2, 2)*(1-self.misalignement_z(eff_1, 1))
 
     def expected_x_qm_misalignement(self, eff_1, eff_2):
-        return self.expected_x_misalignement(eff_1, 1)+self.expected_x_misalignement(eff_2, 2)-2*self.expected_x_misalignement(eff_1, 1)*self.expected_x_misalignement(eff_2, 2)
+        return self.expected_x_misalignement(eff_1, eff_2, 1)+self.expected_x_misalignement(eff_1, eff_2, 2)-2*self.expected_x_misalignement_product(eff_1, eff_2)
 
 ##
 
-    def qm_z_single_photon_error(self):
-        return self.error_single_photon(, , self.qm_error_z(self.single_photon_loading_proba_z(1), self.single_photon_loading_proba_z(2)),z)
+#    def qm_z_single_photon_error(self):
+#        return self.error_single_photon(, , self.qm_error_z(self.single_photon_loading_proba_z(1), self.single_photon_loading_proba_z(2)),z)
 
     def qber_z_qm(self):
-        return self.error_single_photon(self.effective_measurement_efficiency(), self.average_measurement_efficiency(), self.qm_error_z(self.loading_probability_z(1), self.loading_probability_z(2)), z)
+        return self.error_single_photon(self.effective_measurement_efficiency(), self.average_measurement_efficiency(self.loading_probability_z(1),self.loading_probability_z(2)), self.qm_error_z(self.loading_probability_z(1), self.loading_probability_z(2)), "z")
 
 
     def qm_single_qm_x(self):
-        return self.error_single_photon(self.effective_measurement_efficiency(), self.expected_x_qm_misalignement(self, self.single_photon_loading_proba_z(1), self.single_photon_loading_proba_z(2)), x)
+        return self.error_single_photon(self.effective_measurement_efficiency(), self.average_measurement_efficiency(self.single_photon_loading_proba_z(1), self.single_photon_loading_proba_z(2)),self.expected_x_qm_misalignement(self.single_photon_loading_proba_z(1), self.single_photon_loading_proba_z(2)), "x")
 
 ##
 
     def secret_key_rate(self):
-        return self.source.repetition_rate*(self.qm_single_photon_rate_z()*(1-binary_shannon_entropy(self.qm_single_qm_x()))-self.correction_efficiency*self.loading_memories_rate_z()*binary_shannon_entropy(self.qber_z_qm()))
+        return self.source_1.repetition_rate*(self.qm_single_photon_rate_z()*(1-binary_shannon_entropy(self.qm_single_qm_x()))-self.correction_efficiency*self.loading_memories_rate_z()*binary_shannon_entropy(self.qber_z_qm()))
 
 
 
@@ -428,17 +512,50 @@ def key_rate_loss(*, min, max, values_number, memory: Heralding_Quantum_Memory, 
     for x in x_values:
         channel.distance_km = x
         protocol = Memory_Assisted_MDI_Protocol(source_1=source_1,  detector=detector, channel_1=channel, receiver=receiver, correction_efficiency=correction_efficiency, memory=memory, source_2=source_2)
-        y1 = protocol.secret_key_rate
+        y1 = protocol.secret_key_rate()
         y1_values.append(y1)
 
     plt.plot(horiz_axis, y1_values, color='blue', label="With decoy state")
     plt.yscale('log')
     plt.xlabel("Loss in dB")
-    plt.ylabel("Key rate in bpp")
+    plt.ylabel("Key rate in b/s")
     plt.title(title)
     plt.legend()
     plt.grid(True)
     plt.show()
+
+
+## warm vapor memory (Lorenzo)
+
+wv_memory = Heralding_Quantum_Memory(writing_efficiency=0.05, reading_efficiency_0=0.05, storage_time=120*10**(-6), coherence_time=120*10**(-6), writing_time=1.43*10**(-9), reading_time=1.43*10**(-9))
+
+##
+
+repetition_rate = 518*10**6
+
+channel = FiberChannel(loss_per_km=0.2, distance_km=0, detection_error=0.005, channel_background=0)
+
+detector = Threshold_detector(dark_count_rate=1/repetition_rate, efficiency=0.93, time_window=1/repetition_rate, after_pulsing=0)
+
+source = Attenuated_Laser(mean_photon_number=0.48, repetition_rate=repetition_rate, pulse_duration=1/repetition_rate)
+
+receiver= Receiver(transmittance=1)
+
+###
+
+key_rate_loss(min=0, max=500, values_number=2000, memory=wv_memory, source_1=source, source_2=source, detector=detector, channel=channel, receiver=receiver, correction_efficiency=1.22, title="key rate MDI-QKD")
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
