@@ -849,19 +849,18 @@ class BB84(Protocol):
 
 
 def chernoff(x,y):
+    if x <= 0:
+        return 0.0
     return np.sqrt((x/2)*np.log(21/y))
 
 def gamma(a, b, c, d):
-    # Sécurités physiques :
-    # c (s_Z1) et d (s_X1) doivent être des comptages strictement positifs.
-    # b (le ratio d'erreur v_Z1/s_Z1) doit être strictement compris entre 0 et 1.
     if c <= 0 or d <= 0 or b <= 0 or b >= 1:
-        return 1.0  # Retourne 100% d'incertitude, ce qui va effondrer le taux de clé à 0
+        return 1.0
 
     term1 = ((c + d) * (1 - b) * b) / (c * d * np.log(2))
     term2 = ((c + d) / (c * d * (1 - b) * b)) * ((21**2) / (a**2))
 
-    if term2 <= 0:
+    if term2 <= 1:
         return 1.0
 
     return float(np.sqrt(term1 * np.log2(term2)))
@@ -911,10 +910,7 @@ class finite_size_BB84(Protocol):
         return qber
 
     def qber(self):
-        s = 0
-        for k in range(self.nb_mean):
-            s = s+self.overall_quantum_bit_error_rate_x(k)
-        return s / self.nb_mean
+        return self.overall_error_th_block_size("x") / self.overall_th_block_size("x")
 
 ## Finite size key rate
 
@@ -952,7 +948,7 @@ class finite_size_BB84(Protocol):
         corr = chernoff(self.overall_th_block_size(basis), self.security)
 
         if extr == "min":
-            return (np.exp(self.source.mean_photon_number[k])/self.intensities_proba[k])*(self.theoretical_block_size(k, basis)-corr)
+            return (np.exp(self.source.mean_photon_number[k])/self.intensities_proba[k])*max(0.0, self.theoretical_block_size(k, basis)-corr)
 
         else:
             return (np.exp(self.source.mean_photon_number[k])/self.intensities_proba[k])*(self.theoretical_block_size(k, basis)+corr)
@@ -962,7 +958,7 @@ class finite_size_BB84(Protocol):
         corr = chernoff(self.overall_error_th_block_size(basis), self.security)
 
         if extr == "min":
-            return (np.exp(self.source.mean_photon_number[k])/self.intensities_proba[k])*(self.theoretical_error_block_size(k, basis)-corr)
+            return (np.exp(self.source.mean_photon_number[k])/self.intensities_proba[k])*max(0.0, self.theoretical_error_block_size(k, basis)-corr)
 
         else:
             return (np.exp(self.source.mean_photon_number[k])/self.intensities_proba[k])*(self.theoretical_error_block_size(k, basis)+corr)
@@ -976,21 +972,25 @@ class finite_size_BB84(Protocol):
         return s
 
     def vacuum_events_min_x(self, basis="x"):
-        return self.tau(0)*(self.source.mean_photon_number[1]*self.extremum_block_size(2, "min", basis)-self.source.mean_photon_number[2]*self.extremum_block_size(1, "max", basis))/(self.source.mean_photon_number[1]-self.source.mean_photon_number[2])
+        return max(0.0, self.tau(0)*(self.source.mean_photon_number[1]*self.extremum_block_size(2, "min", basis)-self.source.mean_photon_number[2]*self.extremum_block_size(1, "min", basis))/(self.source.mean_photon_number[1]-self.source.mean_photon_number[2]))
 
     def single_photon_events_min(self, basis):
-        return self.tau(1)*self.source.mean_photon_number[0]*(self.extremum_block_size(1, "min", basis)-self.extremum_block_size(2, "max", basis)-((self.source.mean_photon_number[1]**2-self.source.mean_photon_number[2]**2)/(self.source.mean_photon_number[0]**2))*(self.extremum_block_size(0, "max", basis)-self.vacuum_events_min_x(basis)/self.tau(0)))/(self.source.mean_photon_number[0]*(self.source.mean_photon_number[1]-self.source.mean_photon_number[2])-self.source.mean_photon_number[1]**2+self.source.mean_photon_number[2]**2)
+        return max(0.0, self.tau(1)*self.source.mean_photon_number[0]*(self.extremum_block_size(1, "min", basis)-self.extremum_block_size(2, "max", basis)-((self.source.mean_photon_number[1]**2-self.source.mean_photon_number[2]**2)/(self.source.mean_photon_number[0]**2))*(self.extremum_block_size(0, "max", basis)-self.vacuum_events_min_x(basis)/self.tau(0)))/(self.source.mean_photon_number[0]*(self.source.mean_photon_number[1]-self.source.mean_photon_number[2])-self.source.mean_photon_number[1]**2+self.source.mean_photon_number[2]**2))
 
     def single_photon_error_max_z(self):
-        return self.tau(1)*(self.error_block_size(1, "max", "z")-self.error_block_size(2, "min", "z"))/(self.source.mean_photon_number[1]-self.source.mean_photon_number[2])
+        return max(0.0, self.tau(1)*(self.error_block_size(1, "max", "z")-self.error_block_size(2, "min", "z"))/(self.source.mean_photon_number[1]-self.source.mean_photon_number[2]))
 
     def phase_error_max(self):
-        return self.single_photon_error_max_z()/self.single_photon_events_min("z")+gamma(self.security,self.single_photon_error_max_z()/self.single_photon_events_min("z"),self.single_photon_events_min("z"), self.single_photon_events_min("x"))
+        if self.single_photon_events_min("z") <= 0 or self.single_photon_events_min("x") <= 0:
+            return 0.5
+        return min(0.5, self.single_photon_error_max_z()/self.single_photon_events_min("z")+gamma(self.security,self.single_photon_error_max_z()/self.single_photon_events_min("z"),self.single_photon_events_min("z"), self.single_photon_events_min("x")))
 
     def leak_x(self):
         return self.overall_th_block_size("x")*self.correction_efficiency*binary_shannon_entropy(self.qber())
 
     def secret_key_length(self):
+        if self.single_photon_events_min("x") <= 0 or self.single_photon_events_min("z") <= 0 or self.phase_error_max() >= 0.5:
+            return 0.0
         secure = 6*np.log2(21/self.security)+np.log2(2/self.correction)
         # partie entière ??
         return self.vacuum_events_min_x("x")+self.single_photon_events_min("x")-self.single_photon_events_min("x")*binary_shannon_entropy(self.phase_error_max())-self.leak_x()-secure
@@ -1380,19 +1380,17 @@ def loop_key_rate_loss_finite_size(*, min_dist, max_dist, values_number, source,
     plt.grid(True, which="both", ls="--")
     plt.show()
 
-source_1 = Attenuated_Laser(mean_photon_number=np.array([0.5, 0.05, 2e-4]), repetition_rate=10**9)
+source_1 = Attenuated_Laser(mean_photon_number=np.array([0.6, 0.15, 2e-4]), repetition_rate=10**9)
 detector_1 = Threshold_detector(dark_count_rate=0.06, efficiency=0.10, time_window=10**(-5), after_pulsing=0.04)
 receiver_1 = Receiver(transmittance=1.0)
 FiberChannel_1 = FiberChannel(loss_per_km=0.2, distance_km=0, detection_error=0.005)
 f_1 = 1.16
 eps_cor = 10**(-15)
 eps_sec = 10**(-10)
-q_x = 0.9
-p_intensities = np.array([0.8, 0.1, 0.1])
-N_test_values = [10**10, 10**11, 10**12]
+q_x = 0.75
+p_intensities = np.array([0.6, 0.25, 0.15])
+N_test_values = [10**6, 10**12, 10**13]
 
 loop_key_rate_loss_finite_size(min_dist=0, max_dist=150, values_number=300, source=source_1, detector=detector_1, channel=FiberChannel_1, receiver=receiver_1, correction_efficiency=f_1, N_values=N_test_values, proba_x_basis=q_x, intensities_proba=p_intensities, correction=eps_cor, security=eps_sec, title="Finite-size BB84 : Taux de clé vs Pertes")
 
 #key_rate_distance_km_bb84(min=0, max=160, values_number=300, source=source_1, detector=detector_1, channel=FiberChannel_1, receiver=receiver_1, correction_efficiency=f_1, title="Evolution of the key rate with the distance_km for an attenuated laser")
-
-
